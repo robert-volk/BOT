@@ -1,0 +1,93 @@
+name: iOS Build (unsigned IPA)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macos-26 ships Xcode 26: needed for the iOS 26 SDK (Apple's on-device
+    # FoundationModels framework, BOT's default brain) and it reads the project
+    # format (objectVersion 77) produced by the current XcodeGen release.
+    # If this runner is ever unavailable, macos-15 still builds BOT: the Apple
+    # on-device brain is wrapped in #if canImport(FoundationModels) and drops out.
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode / SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios || true
+
+      - name: Install XcodeGen (from official release, no Homebrew)
+        run: |
+          set -euo pipefail
+          curl -fSL -o xcodegen.zip \
+            https://github.com/yonaskolb/XcodeGen/releases/latest/download/xcodegen.zip
+          unzip -q xcodegen.zip -d xcodegen-dist
+          XG_BIN="$(find xcodegen-dist -type f -name xcodegen -path '*/bin/*' | head -1)"
+          echo "Found XcodeGen at: $XG_BIN"
+          "$XG_BIN" --version
+          echo "XCODEGEN_BIN=$XG_BIN" >> "$GITHUB_ENV"
+
+      - name: Generate Xcode project
+        run: |
+          "$XCODEGEN_BIN" generate --spec project.yml
+
+      - name: List schemes
+        run: xcodebuild -list -project BOT.xcodeproj
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project BOT.xcodeproj \
+            -scheme BOT \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
+
+      - name: Embed app icons into the built app
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/BOT.app"
+          PLIST="$APP_PATH/Info.plist"
+          echo "--- before ---"; ls "$APP_PATH" | grep -i -E 'icon|Assets' || true
+          cp Resources/AppIcons/*.png "$APP_PATH/"
+          PB=/usr/libexec/PlistBuddy
+          "$PB" -c "Delete :CFBundleIcons" "$PLIST" || true
+          "$PB" -c "Add :CFBundleIcons dict" "$PLIST"
+          "$PB" -c "Add :CFBundleIcons:CFBundlePrimaryIcon dict" "$PLIST"
+          "$PB" -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconFiles array" "$PLIST"
+          i=0
+          for n in AppIcon20x20 AppIcon29x29 AppIcon40x40 AppIcon60x60; do
+            "$PB" -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconFiles:$i string $n" "$PLIST"
+            i=$((i+1))
+          done
+          "$PB" -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string AppIcon" "$PLIST"
+          echo "--- after ---"; ls "$APP_PATH" | grep -i -E 'icon|Assets'
+          plutil -p "$PLIST" | grep -i -A12 CFBundleIcons
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/BOT.app"
+          if [ ! -d "$APP_PATH" ]; then echo "App not found at $APP_PATH"; exit 1; fi
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry BOT-unsigned.ipa Payload
+          echo "Built IPA:"; ls -lh BOT-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOT-unsigned-ipa
+          path: BOT-unsigned.ipa
+          if-no-files-found: error

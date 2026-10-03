@@ -1,0 +1,13 @@
+# XcodeGen output
+BOT.xcodeproj/
+
+# Build artifacts
+build/
+DerivedData/
+Payload/
+*.ipa
+
+# macOS / Xcode cruft
+.DS_Store
+*.xcuserstate
+xcuserdata/
