@@ -21,6 +21,7 @@ final class ConversationEngine: ObservableObject {
 
     let settings: AppSettings
     let facts: FactStore
+    let reminders: ReminderCenter
     let listener = Listener()
     let speaker = Speaker()
     private let weather = WeatherService()
@@ -37,11 +38,13 @@ final class ConversationEngine: ObservableObject {
     static let claudeKeyAccount = "claude-api-key"
     static let braveKeyAccount = "brave-api-key"
 
-    init(settings: AppSettings, facts: FactStore) {
+    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter) {
         self.settings = settings
         self.facts = facts
+        self.reminders = reminders
         listener.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         speaker.onIdle = { [weak self] in self?.speechDidFinish() }
+        reminders.onForegroundFire = { [weak self] line in self?.announce(line) }
         refreshBrain()
     }
 
@@ -200,6 +203,11 @@ final class ConversationEngine: ObservableObject {
             return
         }
 
+        if pendingReminder != nil || ReminderParser.isReminderRequest(text) || ReminderParser.isListRequest(text) || ReminderParser.isCancelAll(text) {
+            handleReminder(text)
+            return
+        }
+
         let history = turns
         turns.append(ChatTurn(role: .user, text: text))
         if prefs.learnAboutMe {
@@ -285,6 +293,93 @@ final class ConversationEngine: ObservableObject {
         // Claude searches natively (and better) when it has the tool; our own pipeline covers everything else.
         guard prefs.webSearch, (brain as? ClaudeBrain)?.nativeSearch != true else { return nil }
         return WebSearchService.query(for: text, basic: basic)
+    }
+
+    // MARK: Reminders
+
+    private struct PendingReminder {
+        var task: String?
+        var date: Date?
+    }
+    private var pendingReminder: PendingReminder?
+
+    private func handleReminder(_ text: String) {
+        turns.append(ChatTurn(role: .user, text: text))
+
+        if ReminderParser.isCancelAll(text) {
+            pendingReminder = nil
+            reminders.cancelAll()
+            speakLocal("Okay, I've cleared your reminders.")
+            return
+        }
+        if ReminderParser.isListRequest(text) {
+            speakLocal(reminders.spokenList())
+            return
+        }
+        if pendingReminder != nil && ReminderParser.isNevermind(text) {
+            pendingReminder = nil
+            speakLocal("Okay, no reminder.")
+            return
+        }
+
+        var task: String?
+        var date: Date?
+        if let p = pendingReminder, !ReminderParser.isReminderRequest(text) {
+            // They're answering "when?" or "what about?"
+            task = p.task
+            date = p.date
+            if date == nil {
+                let parsed = ReminderParser.parse(text)
+                date = parsed.date
+                if task == nil { task = parsed.task }
+            } else if task == nil {
+                task = text
+            }
+        } else {
+            let parsed = ReminderParser.parse(text)
+            task = parsed.task
+            date = parsed.date
+        }
+        pendingReminder = nil
+
+        guard let when = date else {
+            pendingReminder = PendingReminder(task: task, date: nil)
+            speakLocal(task == nil ? "Sure. What should I remind you about, and when?" : "When should I remind you?")
+            return
+        }
+        guard let what = task else {
+            pendingReminder = PendingReminder(task: nil, date: when)
+            speakLocal("What should I remind you about?")
+            return
+        }
+
+        phase = .thinking
+        let voice = prefs.voiceID, rate = Float(prefs.rate), pitch = Float(prefs.pitch)
+        Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.reminders.schedule(task: what, fire: when, voiceID: voice, rate: rate, pitch: pitch)
+            switch outcome {
+            case .needsPermission:
+                self.speakLocal("I need notification permission to remind you. Turn on notifications for BOT in the iPhone Settings app, then ask me again.")
+            case .scheduled:
+                let whenText = ReminderParser.whenPhrase(when)
+                if what == ReminderParser.timerTask {
+                    self.speakLocal("Okay, timer set \(whenText).")
+                } else {
+                    self.speakLocal("Got it. I'll remind you \(whenText): \(ReminderParser.secondPerson(what)).")
+                }
+            }
+        }
+    }
+
+    /// A reminder fired while the app was open: say it out loud right now.
+    private func announce(_ line: String) {
+        active = false
+        cancelReply()
+        speaker.stop()
+        listener.cancel()
+        Listener.configureAudioSession()
+        speakLocal(line)
     }
 
     private func say(_ sentence: String) {

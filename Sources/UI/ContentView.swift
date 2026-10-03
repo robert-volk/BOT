@@ -4,12 +4,14 @@ struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var engine: ConversationEngine
     @EnvironmentObject var facts: FactStore
+    @EnvironmentObject var reminders: ReminderCenter
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showSettings = false
     @State private var showMemory = false
     @State private var showTranscript = false
+    @State private var showReminders = false
 
     private var prefs: Preferences { settings.prefs }
     private var theme: Theme { Theme(prefs: prefs, scheme: scheme) }
@@ -49,6 +51,10 @@ struct ContentView: View {
                 .environmentObject(settings).environmentObject(facts)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
+        .sheet(isPresented: $showReminders) {
+            RemindersView().environmentObject(reminders)
+                .preferredColorScheme(prefs.appearance.scheme)
+        }
         .sheet(isPresented: $showTranscript) {
             TranscriptView(theme: theme).environmentObject(engine)
                 .preferredColorScheme(prefs.appearance.scheme)
@@ -84,6 +90,12 @@ struct ContentView: View {
                 .foregroundStyle(theme.text)
             Spacer()
             iconButton("text.bubble") { showTranscript = true }
+            ZStack(alignment: .topTrailing) {
+                iconButton("bell.fill") { showReminders = true }
+                if !reminders.items.isEmpty {
+                    Circle().fill(theme.accent).frame(width: 10, height: 10).offset(x: -3, y: 3)
+                }
+            }
             ZStack(alignment: .topTrailing) {
                 iconButton("brain.head.profile") { showMemory = true }
                 if !facts.facts.isEmpty {
