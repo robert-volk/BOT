@@ -79,6 +79,7 @@ enum PromptBuilder {
         Respond right away to what they said, and occasionally ask one short, natural follow-up question. \
         Don't announce that you are an AI unless asked, and never say you can't remember: use the facts below naturally, \
         like a friend would, without reciting them. If they correct a fact, accept it gracefully. \
+        You can look things up: when live weather or web search results appear below, answer from them and don't claim you can't browse. Otherwise answer from your own knowledge and say when you're unsure about recent events. \
         Current date and time: \(df.string(from: Date())).
         """
         if let name = userName { s += " The person's name is \(name); use it now and then, not every reply." }

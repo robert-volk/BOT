@@ -1,7 +1,7 @@
 import Foundation
 import CoreLocation
 
-enum WeatherResult {
+enum LookupResult {
     case ok(spoken: String, facts: String)
     case failed(String)
 }
@@ -41,7 +41,7 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
 
     // MARK: Lookup
 
-    func report(for utterance: String) async -> WeatherResult {
+    func report(for utterance: String) async -> LookupResult {
         var lat = 0.0, lon = 0.0, label = "your area"
 
         if let place = Self.placeName(in: utterance) {
@@ -64,7 +64,7 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    private func fetchForecast(lat: Double, lon: Double, label: String, tomorrow: Bool) async throws -> WeatherResult {
+    private func fetchForecast(lat: Double, lon: Double, label: String, tomorrow: Bool) async throws -> LookupResult {
         var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         c.queryItems = [
             .init(name: "latitude", value: String(lat)),

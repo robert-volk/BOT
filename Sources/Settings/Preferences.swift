@@ -174,6 +174,7 @@ struct Preferences: Codable, Equatable {
     var replyLength: ReplyLength = .brief
     var personality: Personality = .warm
     var learnAboutMe: Bool = true
+    var webSearch: Bool = true
 
     // Brain
     var brain: BrainChoice = .auto

@@ -24,6 +24,7 @@ final class ConversationEngine: ObservableObject {
     let listener = Listener()
     let speaker = Speaker()
     private let weather = WeatherService()
+    private let webSearch = WebSearchService()
 
     private var brain: Brain = BasicBrain(note: nil)
     private var replyTask: Task<Void, Never>?
@@ -226,6 +227,17 @@ final class ConversationEngine: ObservableObject {
                     if brain is BasicBrain { direct = message }
                     else { system += "\n\nThe weather lookup failed: \(message) Tell them that briefly and kindly." }
                 }
+            } else if let q = self?.searchQuery(for: text, basic: brain is BasicBrain) {
+                let result = await (self?.webSearch ?? WebSearchService()).search(q)
+                guard let self, self.replyID == id, !Task.isCancelled else { return }
+                switch result {
+                case .ok(let spoken, let facts):
+                    if brain is BasicBrain { direct = spoken }
+                    else { system += "\n\n\(facts)" }
+                case .failed(let message):
+                    if brain is BasicBrain { direct = message }
+                    else { system += "\n\nA web search just failed: \(message) Tell them that briefly and kindly." }
+                }
             }
 
             do {
@@ -260,6 +272,10 @@ final class ConversationEngine: ObservableObject {
             self.pendingExtraction = (text, full)
             self.speaker.finishInput()
         }
+    }
+
+    private func searchQuery(for text: String, basic: Bool) -> String? {
+        prefs.webSearch ? WebSearchService.query(for: text, basic: basic) : nil
     }
 
     private func say(_ sentence: String) {

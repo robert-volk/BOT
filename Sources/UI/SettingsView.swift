@@ -170,6 +170,7 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.words)
             }
             Toggle("Hands-free (keep listening)", isOn: $settings.prefs.handsFree)
+            Toggle("Web search (weather, news, facts)", isOn: $settings.prefs.webSearch)
             sliderRow("Pause before reply", value: $settings.prefs.silenceDelay, range: 0.6...2.0, format: "%.1f s")
             Picker("Reply length", selection: $settings.prefs.replyLength) {
                 ForEach(ReplyLength.allCases) { Text($0.title).tag($0) }
@@ -230,7 +231,7 @@ struct SettingsView: View {
                 p.voiceID = old.voiceID; p.rate = old.rate; p.pitch = old.pitch
                 p.botName = old.botName; p.handsFree = old.handsFree; p.silenceDelay = old.silenceDelay
                 p.replyLength = old.replyLength; p.personality = old.personality
-                p.learnAboutMe = old.learnAboutMe; p.brain = old.brain
+                p.learnAboutMe = old.learnAboutMe; p.brain = old.brain; p.webSearch = old.webSearch
                 settings.prefs = p
             }
         }
