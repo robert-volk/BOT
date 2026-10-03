@@ -361,13 +361,13 @@ final class ConversationEngine: ObservableObject {
             switch outcome {
             case .needsPermission:
                 self.speakLocal("I need notification permission to remind you. Turn on notifications for BOT in the iPhone Settings app, then ask me again.")
-            case .scheduled:
+            case .scheduled(let spokenBanner):
                 let whenText = ReminderParser.whenPhrase(when)
-                if what == ReminderParser.timerTask {
-                    self.speakLocal("Okay, timer set \(whenText).")
-                } else {
-                    self.speakLocal("Got it. I'll remind you \(whenText): \(ReminderParser.secondPerson(what)).")
-                }
+                var reply = what == ReminderParser.timerTask
+                    ? "Okay, timer set \(whenText)."
+                    : "Got it. I'll remind you \(whenText): \(ReminderParser.secondPerson(what))."
+                if !spokenBanner { reply += " I couldn't prepare a spoken alert, so when the app is closed you'll get the banner and a chime." }
+                self.speakLocal(reply)
             }
         }
     }

@@ -113,17 +113,26 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         let url = Self.soundsDir.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: url)
 
-        let u = AVSpeechUtterance(string: line)
-        u.voice = voiceID.flatMap { AVSpeechSynthesisVoice(identifier: $0) } ?? Speaker.bestVoice()
-        u.rate = AVSpeechUtteranceMinimumSpeechRate + (AVSpeechUtteranceMaximumSpeechRate - AVSpeechUtteranceMinimumSpeechRate) * rate
-        u.pitchMultiplier = pitch
+        // Premium/Enhanced voices often can't be rendered to a file, so fall back to the built-in Samantha.
+        var voices: [AVSpeechSynthesisVoice] = []
+        if let v = voiceID.flatMap({ AVSpeechSynthesisVoice(identifier: $0) }) ?? Speaker.bestVoice() { voices.append(v) }
+        if let v = AVSpeechSynthesisVoice(identifier: "com.apple.voice.compact.en-US.Samantha") { voices.append(v) }
+        if let v = AVSpeechSynthesisVoice(language: "en-US") { voices.append(v) }
 
-        let writer = SoundWriter(url: url)
-        writers[id] = writer
-        let ok = await writer.render(u)
-        writers[id] = nil
-        if !ok { try? FileManager.default.removeItem(at: url) }
-        return ok ? name : nil
+        for voice in voices {
+            let u = AVSpeechUtterance(string: line)
+            u.voice = voice
+            u.rate = AVSpeechUtteranceMinimumSpeechRate + (AVSpeechUtteranceMaximumSpeechRate - AVSpeechUtteranceMinimumSpeechRate) * rate
+            u.pitchMultiplier = pitch
+
+            let writer = SoundWriter(url: url)
+            writers[id] = writer
+            let ok = await writer.render(u)
+            writers[id] = nil
+            if ok { return name }
+            try? FileManager.default.removeItem(at: url)
+        }
+        return nil
     }
 
     // MARK: Delivery
