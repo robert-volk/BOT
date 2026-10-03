@@ -38,9 +38,9 @@ enum ReminderParser {
         var date: Date?
 
         // 1. Relative: "in 20 minutes", "in an hour", "in half an hour", "timer for 10 minutes"
-        let words = "an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty[- ]?five|forty|sixty|ninety|\d+(?:\.\d+)?"
+        let words = #"an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty[- ]?five|forty|sixty|ninety|\d+(?:\.\d+)?"#
         let lead = isTimer ? "in|after|for" : "in|after"
-        let rel = "\b(?:\(lead))\s+(half an?|\(words))\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"
+        let rel = #"\b(?:"# + lead + #")\s+(half an?|"# + words + #")\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b"#
         if let re = try? NSRegularExpression(pattern: rel, options: [.caseInsensitive]),
            let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
            let qr = Range(m.range(at: 1), in: text), let ur = Range(m.range(at: 2), in: text),
