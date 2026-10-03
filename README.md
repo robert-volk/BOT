@@ -32,6 +32,10 @@ or **Samantha (Enhanced)**. BOT picks the best one automatically, or choose in B
 - Say **"remember that …"**, **"forget that …"**, or **"forget everything about me"**.
 - The brain icon shows (and lets you edit, pin, delete, add) everything BOT knows. A "Learned: …" badge pops up when it picks up something new.
 
+## Live info: weather and web search
+- **Weather**: Open-Meteo (free, no key) + your location, or "weather in Chicago".
+- **Web search**: with a Claude key, Claude searches the live web itself (Anthropic's web search tool; small per-search fee). Otherwise BOT searches DuckDuckGo (free, no key), falls back to Wikipedia, and reads the top pages. An optional Brave Search key (Settings → Search) makes the no-Claude path more reliable. Toggle in Settings → Search.
+
 ## Design options (slider icon, top left)
 Live preview with idle / listening / thinking / speaking states, and:
 - **Quick looks**: Classic, Midnight, Frost, Neon, Studio

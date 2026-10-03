@@ -5,23 +5,28 @@ import Foundation
 /// Anthropic. The VOICE is never a paid service: speech always comes from the free on-device synthesizer.
 struct ClaudeBrain: Brain {
     let apiKey: String
+    /// Lets Claude run live web searches itself (Anthropic's server-side web search tool, billed per search).
+    var nativeSearch = false
     static let model = "claude-haiku-4-5-20251001"
     var displayName: String { "Claude Haiku" }
 
-    private func request(system: String, messages: [[String: String]], maxTokens: Int, stream: Bool) throws -> URLRequest {
+    private func request(system: String, messages: [[String: String]], maxTokens: Int, stream: Bool, searchTool: Bool = false) throws -> URLRequest {
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
         req.timeoutInterval = 30
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": Self.model,
-            "max_tokens": maxTokens,
+            "max_tokens": searchTool ? maxTokens + 300 : maxTokens,
             "system": system,
             "messages": messages,
             "stream": stream,
         ]
+        if searchTool {
+            body["tools"] = [["type": "web_search_20250305", "name": "web_search", "max_uses": 3]]
+        }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         return req
     }
@@ -49,23 +54,29 @@ struct ClaudeBrain: Brain {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let req = try request(system: system, messages: messages(history: history, user: user),
-                                          maxTokens: maxTokens, stream: true)
-                    let (bytes, response) = try await URLSession.shared.bytes(for: req)
-                    if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                        var body = ""
-                        for try await line in bytes.lines { body += line }
-                        throw BrainError.http(http.statusCode, Self.errorMessage(from: body))
-                    }
-                    for try await line in bytes.lines {
-                        guard line.hasPrefix("data:") else { continue }
-                        let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                        guard let data = json.data(using: .utf8),
-                              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              obj["type"] as? String == "content_block_delta",
-                              let delta = obj["delta"] as? [String: Any],
-                              let text = delta["text"] as? String else { continue }
-                        continuation.yield(text)
+                    var useSearch = nativeSearch
+                    while true {
+                        let req = try request(system: system, messages: messages(history: history, user: user),
+                                              maxTokens: maxTokens, stream: true, searchTool: useSearch)
+                        let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                            var body = ""
+                            for try await line in bytes.lines { body += line }
+                            // Web search not enabled for this account? Retry once as a plain chat.
+                            if useSearch { useSearch = false; continue }
+                            throw BrainError.http(http.statusCode, Self.errorMessage(from: body))
+                        }
+                        for try await line in bytes.lines {
+                            guard line.hasPrefix("data:") else { continue }
+                            let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                            guard let data = json.data(using: .utf8),
+                                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                  obj["type"] as? String == "content_block_delta",
+                                  let delta = obj["delta"] as? [String: Any],
+                                  let text = delta["text"] as? String else { continue }
+                            continuation.yield(text)
+                        }
+                        break
                     }
                     continuation.finish()
                 } catch {

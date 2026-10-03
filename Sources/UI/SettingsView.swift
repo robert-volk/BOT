@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     @State private var previewPhase: Phase = .idle
     @State private var keyField = ""
+    @State private var braveField = ""
     @State private var voices: [Speaker.VoiceInfo] = []
 
     private var theme: Theme { Theme(prefs: settings.prefs, scheme: scheme) }
@@ -25,6 +26,7 @@ struct SettingsView: View {
                 voiceSection
                 conversationSection
                 brainSection
+                searchSection
                 memorySection
                 resetSection
             }
@@ -170,7 +172,6 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.words)
             }
             Toggle("Hands-free (keep listening)", isOn: $settings.prefs.handsFree)
-            Toggle("Web search (weather, news, facts)", isOn: $settings.prefs.webSearch)
             sliderRow("Pause before reply", value: $settings.prefs.silenceDelay, range: 0.6...2.0, format: "%.1f s")
             Picker("Reply length", selection: $settings.prefs.replyLength) {
                 ForEach(ReplyLength.allCases) { Text($0.title).tag($0) }
@@ -206,6 +207,24 @@ struct SettingsView: View {
             }
         } header: { Text("Brain") } footer: {
             Text("Automatic uses Apple's on-device model (free, private, very fast; needs an iPhone 15 Pro or newer with Apple Intelligence on). If that's not available it uses Claude Haiku when you've added a key (fast, but billed by Anthropic), otherwise Basic mode. Only the AI's thinking can use a key; BOT's voice never does.")
+        }
+    }
+
+    private var searchSection: some View {
+        Section {
+            Toggle("Web search (news, facts, weather)", isOn: $settings.prefs.webSearch)
+            if engine.hasBraveKey {
+                LabeledContent("Brave Search key", value: "Saved")
+                Button("Remove key", role: .destructive) { engine.setBraveKey(""); braveField = "" }
+            } else {
+                SecureField("Brave Search key (optional)", text: $braveField)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Save key") { engine.setBraveKey(braveField); braveField = "" }
+                    .disabled(braveField.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        } header: { Text("Search") } footer: {
+            Text("With a Claude key, Claude searches the live web itself (Anthropic bills a small fee per search). Otherwise BOT searches DuckDuckGo (free) and reads the top pages. A Brave Search key from brave.com/search/api makes that more reliable. Only your search words go to the search provider.")
         }
     }
 

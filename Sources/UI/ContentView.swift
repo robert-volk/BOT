@@ -68,6 +68,7 @@ struct ContentView: View {
             UIApplication.shared.isIdleTimerDisabled = on
         }
         .onChange(of: prefs.brain) { _, _ in engine.refreshBrain() }
+        .onChange(of: prefs.webSearch) { _, _ in engine.refreshBrain() }
         .tint(theme.accent)
     }
 

@@ -24,7 +24,6 @@ final class ConversationEngine: ObservableObject {
     let listener = Listener()
     let speaker = Speaker()
     private let weather = WeatherService()
-    private let webSearch = WebSearchService()
 
     private var brain: Brain = BasicBrain(note: nil)
     private var replyTask: Task<Void, Never>?
@@ -36,6 +35,7 @@ final class ConversationEngine: ObservableObject {
     private var bag = Set<AnyCancellable>()
 
     static let claudeKeyAccount = "claude-api-key"
+    static let braveKeyAccount = "brave-api-key"
 
     init(settings: AppSettings, facts: FactStore) {
         self.settings = settings
@@ -53,7 +53,7 @@ final class ConversationEngine: ObservableObject {
 
     func refreshBrain() {
         let key = Keychain.get(Self.claudeKeyAccount)
-        brain = BrainFactory.make(choice: prefs.brain, claudeKey: key)
+        brain = BrainFactory.make(choice: prefs.brain, claudeKey: key, webSearch: prefs.webSearch)
         brainName = brain.displayName
         brainNote = (brain as? BasicBrain)?.note
     }
@@ -62,6 +62,13 @@ final class ConversationEngine: ObservableObject {
         Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), for: Self.claudeKeyAccount)
         refreshBrain()
     }
+
+    func setBraveKey(_ key: String) {
+        Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), for: Self.braveKeyAccount)
+        objectWillChange.send()
+    }
+
+    var hasBraveKey: Bool { !(Keychain.get(Self.braveKeyAccount) ?? "").isEmpty }
 
     var hasClaudeKey: Bool { !(Keychain.get(Self.claudeKeyAccount) ?? "").isEmpty }
 
@@ -228,7 +235,7 @@ final class ConversationEngine: ObservableObject {
                     else { system += "\n\nThe weather lookup failed: \(message) Tell them that briefly and kindly." }
                 }
             } else if let q = self?.searchQuery(for: text, basic: brain is BasicBrain) {
-                let result = await (self?.webSearch ?? WebSearchService()).search(q)
+                let result = await WebSearchService(braveKey: Keychain.get(Self.braveKeyAccount)).search(q)
                 guard let self, self.replyID == id, !Task.isCancelled else { return }
                 switch result {
                 case .ok(let spoken, let facts):
@@ -275,7 +282,9 @@ final class ConversationEngine: ObservableObject {
     }
 
     private func searchQuery(for text: String, basic: Bool) -> String? {
-        prefs.webSearch ? WebSearchService.query(for: text, basic: basic) : nil
+        // Claude searches natively (and better) when it has the tool; our own pipeline covers everything else.
+        guard prefs.webSearch, (brain as? ClaudeBrain)?.nativeSearch != true else { return nil }
+        return WebSearchService.query(for: text, basic: basic)
     }
 
     private func say(_ sentence: String) {

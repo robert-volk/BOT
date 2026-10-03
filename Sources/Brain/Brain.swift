@@ -45,7 +45,7 @@ enum BrainFactory {
         #endif
     }
 
-    static func make(choice: BrainChoice, claudeKey: String?) -> Brain {
+    static func make(choice: BrainChoice, claudeKey: String?, webSearch: Bool) -> Brain {
         func apple() -> Brain? {
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *), AppleBrain.unavailableReason() == nil { return AppleBrain() }
@@ -54,7 +54,7 @@ enum BrainFactory {
         }
         func claude() -> Brain? {
             guard let k = claudeKey, !k.isEmpty else { return nil }
-            return ClaudeBrain(apiKey: k)
+            return ClaudeBrain(apiKey: k, nativeSearch: webSearch)
         }
         switch choice {
         case .apple: return apple() ?? BasicBrain(note: appleUnavailableReason())
