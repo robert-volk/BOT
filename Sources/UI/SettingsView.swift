@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var engine: ConversationEngine
     @EnvironmentObject var facts: FactStore
+    @EnvironmentObject var calendar: CalendarCenter
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
 
@@ -28,6 +29,7 @@ struct SettingsView: View {
                 brainSection
                 searchSection
                 siriSection
+                calendarSection
                 memorySection
                 resetSection
             }
@@ -38,6 +40,13 @@ struct SettingsView: View {
             }
             .onAppear { voices = Speaker.femaleAmericanVoices() }
             .onChange(of: settings.prefs.brain) { _, _ in engine.refreshBrain() }
+            .onChange(of: settings.prefs.calendarAlerts) { _, on in
+                Task {
+                    if on, !(await calendar.requestAccess()) { settings.prefs.calendarAlerts = false; return }
+                    await calendar.sync(with: settings.prefs)
+                }
+            }
+            .onChange(of: settings.prefs.calendarLead) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
         }
         .tint(theme.accent)
     }
@@ -234,6 +243,24 @@ struct SettingsView: View {
             Label("Say “Hey Siri, talk to BOT”", systemImage: "mic.fill")
         } header: { Text("Wake up") } footer: {
             Text("BOT opens and starts listening. Other phrases that work: “Hey Siri, wake up BOT” or “Hey Siri, ask BOT”. If Siri doesn't recognize it, open BOT once and give Siri a minute to learn it. You can also run it from the Shortcuts app (search “Talk to BOT”) and bind it to the Action Button (iOS Settings, Action Button, Shortcut) or Back Tap (Accessibility, Touch, Back Tap). Say “goodbye” to end a conversation.")
+        }
+    }
+
+    private var calendarSection: some View {
+        Section {
+            Toggle("Meeting alerts", isOn: $settings.prefs.calendarAlerts)
+            if settings.prefs.calendarAlerts {
+                Picker("Alert me", selection: $settings.prefs.calendarLead) {
+                    Text("When it starts").tag(0)
+                    Text("5 minutes before").tag(5)
+                    Text("10 minutes before").tag(10)
+                    Text("15 minutes before").tag(15)
+                    Text("30 minutes before").tag(30)
+                }
+            }
+            Toggle("Let Claude see my schedule", isOn: $settings.prefs.calendarToClaude)
+        } header: { Text("Calendar") } footer: {
+            Text("BOT reads your calendar but never changes it. Alerts show a banner and speak the meeting aloud, and are scheduled for the next 3 days each time you open BOT, so open it every few days and after your schedule changes. You can ask “What’s on my calendar today?” or “When’s my next meeting?”. The on-device AI always sees your next two days; Claude only does if you turn on the last switch, because that sends event titles to Anthropic.")
         }
     }
 

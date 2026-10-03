@@ -1,10 +1,12 @@
 import SwiftUI
+import EventKit
 
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var engine: ConversationEngine
     @EnvironmentObject var facts: FactStore
     @EnvironmentObject var reminders: ReminderCenter
+    @EnvironmentObject var calendar: CalendarCenter
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -43,7 +45,7 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: engine.learnedToast)
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts)
+            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showMemory) {
@@ -69,16 +71,21 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, new in
             if new != .active { engine.end() }
-            if new == .active { consumeSiriLaunch() }
+            if new == .active { consumeSiriLaunch(); resyncCalendar() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .botWakeRequested)) { _ in consumeSiriLaunch() }
-        .onAppear { consumeSiriLaunch() }
+        .onAppear { consumeSiriLaunch(); resyncCalendar() }
+        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in resyncCalendar() }
         .onChange(of: engine.active) { _, on in
             UIApplication.shared.isIdleTimerDisabled = on
         }
         .onChange(of: prefs.brain) { _, _ in engine.refreshBrain() }
         .onChange(of: prefs.webSearch) { _, _ in engine.refreshBrain() }
         .tint(theme.accent)
+    }
+
+    private func resyncCalendar() {
+        Task { await calendar.sync(with: settings.prefs) }
     }
 
     private func consumeSiriLaunch() {

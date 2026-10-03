@@ -22,6 +22,10 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>BOT reads your calendar to warn you before meetings and to answer questions about your schedule. It never changes your events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>BOT reads your calendar to warn you before meetings and to answer questions about your schedule.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>BOT uses your location only to tell you the weather where you are.</string>
 	<key>NSMicrophoneUsageDescription</key>

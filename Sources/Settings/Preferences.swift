@@ -175,6 +175,9 @@ struct Preferences: Codable, Equatable {
     var personality: Personality = .warm
     var learnAboutMe: Bool = true
     var webSearch: Bool = true
+    var calendarAlerts: Bool = false
+    var calendarLead: Int = 10
+    var calendarToClaude: Bool = false
 
     // Brain
     var brain: BrainChoice = .auto

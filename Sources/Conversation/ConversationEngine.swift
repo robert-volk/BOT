@@ -22,6 +22,7 @@ final class ConversationEngine: ObservableObject {
     let settings: AppSettings
     let facts: FactStore
     let reminders: ReminderCenter
+    let calendar: CalendarCenter
     let listener = Listener()
     let speaker = Speaker()
     private let weather = WeatherService()
@@ -38,10 +39,11 @@ final class ConversationEngine: ObservableObject {
     static let claudeKeyAccount = "claude-api-key"
     static let braveKeyAccount = "brave-api-key"
 
-    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter) {
+    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter) {
         self.settings = settings
         self.facts = facts
         self.reminders = reminders
+        self.calendar = calendar
         listener.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         speaker.onIdle = { [weak self] in self?.speechDidFinish() }
         reminders.onForegroundFire = { [weak self] line in self?.announce(line) }
@@ -76,7 +78,10 @@ final class ConversationEngine: ObservableObject {
     var hasClaudeKey: Bool { !(Keychain.get(Self.claudeKeyAccount) ?? "").isEmpty }
 
     private func currentSystem() -> String {
-        PromptBuilder.system(prefs: prefs, facts: facts.promptBlock(), userName: facts.userName)
+        // The on-device model sees your schedule freely; Claude only if you opted in (it leaves the phone).
+        var cal = ""
+        if calendar.authorized && ((brain as? ClaudeBrain) == nil || prefs.calendarToClaude) { cal = calendar.promptBlock() }
+        return PromptBuilder.system(prefs: prefs, facts: facts.promptBlock(), userName: facts.userName, calendar: cal)
     }
 
     // MARK: User actions
@@ -224,6 +229,11 @@ final class ConversationEngine: ObservableObject {
             return
         }
 
+        if CalendarCenter.isAgendaQuestion(text) {
+            handleCalendar(text)
+            return
+        }
+
         let history = turns
         turns.append(ChatTurn(role: .user, text: text))
         if prefs.learnAboutMe {
@@ -309,6 +319,28 @@ final class ConversationEngine: ObservableObject {
         // Claude searches natively (and better) when it has the tool; our own pipeline covers everything else.
         guard prefs.webSearch, (brain as? ClaudeBrain)?.nativeSearch != true else { return nil }
         return WebSearchService.query(for: text, basic: basic)
+    }
+
+    // MARK: Calendar
+
+    private func handleCalendar(_ text: String) {
+        turns.append(ChatTurn(role: .user, text: text))
+        phase = .thinking
+        Task { [weak self] in
+            guard let self else { return }
+            if !self.calendar.authorized {
+                if self.calendar.isDenied {
+                    self.speakLocal("I don't have permission to see your calendar. Turn on Calendars for BOT in iPhone Settings, under Privacy and Security.")
+                    return
+                }
+                guard await self.calendar.requestAccess() else {
+                    self.speakLocal("Okay, I won't look at your calendar.")
+                    return
+                }
+                await self.calendar.sync(with: self.settings.prefs)
+            }
+            self.speakLocal(self.calendar.spokenAgenda(for: text))
+        }
     }
 
     // MARK: Reminders

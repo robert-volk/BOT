@@ -67,7 +67,7 @@ enum BrainFactory {
 }
 
 enum PromptBuilder {
-    static func system(prefs: Preferences, facts: String, userName: String?) -> String {
+    static func system(prefs: Preferences, facts: String, userName: String?, calendar: String = "") -> String {
         let df = DateFormatter()
         df.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a"
         var s = """
@@ -84,6 +84,7 @@ enum PromptBuilder {
         """
         if let name = userName { s += " The person's name is \(name); use it now and then, not every reply." }
         if !facts.isEmpty { s += "\n\nWhat you know about them:\n\(facts)" }
+        if !calendar.isEmpty { s += "\n\nTheir calendar (next two days):\n\(calendar)" }
         return s
     }
 

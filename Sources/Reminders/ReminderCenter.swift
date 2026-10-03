@@ -25,7 +25,7 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     var onForegroundFire: ((String) -> Void)?
 
     private let fileURL: URL
-    private var writers: [UUID: SoundWriter] = [:]
+    private var writers: [String: SoundWriter] = [:]
 
     override init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -85,7 +85,7 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         return count + " " + parts.joined(separator: ". ") + "."
     }
 
-    private func ensureAuthorized() async -> Bool {
+    func ensureAuthorized() async -> Bool {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         switch settings.authorizationStatus {
@@ -97,21 +97,25 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
 
     // MARK: Spoken notification sound
 
-    private static var soundsDir: URL {
+    static var soundsDirectory: URL {
         let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
         return lib.appendingPathComponent("Sounds", isDirectory: true)
     }
 
     private func deleteSound(_ id: UUID) {
-        try? FileManager.default.removeItem(at: Self.soundsDir.appendingPathComponent("bot-\(id.uuidString).caf"))
+        try? FileManager.default.removeItem(at: Self.soundsDirectory.appendingPathComponent("bot-\(id.uuidString).caf"))
     }
 
     /// Renders `line` with BOT's voice into Library/Sounds so a notification can play it with the app closed.
     private func makeSpeechSound(id: UUID, line: String, voiceID: String?, rate: Float, pitch: Float) async -> String? {
-        try? FileManager.default.createDirectory(at: Self.soundsDir, withIntermediateDirectories: true)
-        let name = "bot-\(id.uuidString).caf"
-        let url = Self.soundsDir.appendingPathComponent(name)
-        try? FileManager.default.removeItem(at: url)
+        await speechSound(named: "bot-\(id.uuidString).caf", line: line, voiceID: voiceID, rate: rate, pitch: pitch)
+    }
+
+    /// Renders `line` to Library/Sounds/<name>, reusing an existing file with that name.
+    func speechSound(named name: String, line: String, voiceID: String?, rate: Float, pitch: Float) async -> String? {
+        try? FileManager.default.createDirectory(at: Self.soundsDirectory, withIntermediateDirectories: true)
+        let url = Self.soundsDirectory.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: url.path) { return name }
 
         // Premium/Enhanced voices often can't be rendered to a file, so fall back to the built-in Samantha.
         var voices: [AVSpeechSynthesisVoice] = []
@@ -126,9 +130,9 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
             u.pitchMultiplier = pitch
 
             let writer = SoundWriter(url: url)
-            writers[id] = writer
+            writers[name] = writer
             let ok = await writer.render(u)
-            writers[id] = nil
+            writers[name] = nil
             if ok { return name }
             try? FileManager.default.removeItem(at: url)
         }
