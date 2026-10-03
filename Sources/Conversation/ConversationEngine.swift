@@ -120,7 +120,7 @@ final class ConversationEngine: ObservableObject {
 
     // MARK: Flow
 
-    private func begin() async {
+    private func begin(fromSiri: Bool = false) async {
         guard await Listener.requestPermissions() else {
             permissionDenied = true
             return
@@ -130,12 +130,21 @@ final class ConversationEngine: ObservableObject {
         emptyStreak = 0
         Listener.configureAudioSession()   // playAndRecord, so speech ignores the silent switch
         refreshBrain()
-        if !greeted {
+        if fromSiri {
+            greeted = true
+            speakLocal(["Yes?", "I'm listening.", "Hi there!", "Yeah?"].randomElement() ?? "Yes?")
+        } else if !greeted {
             greeted = true
             speakLocal(greeting())
         } else {
             startListening()
         }
+    }
+
+    /// "Hey Siri, talk to BOT" (or a Shortcut / the Action Button) landed in the app.
+    func startFromSiri() {
+        guard !active else { return }
+        Task { await begin(fromSiri: true) }
     }
 
     private func greeting() -> String {
@@ -203,6 +212,13 @@ final class ConversationEngine: ObservableObject {
             return
         }
 
+        if text.range(of: #"^(?:ok(?:ay)?,? |hey,? )?(?:good ?bye|bye(?: bye)?|that'?s all|that is all|stop listening|go to sleep|talk to you later)\b"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            turns.append(ChatTurn(role: .user, text: text))
+            active = false                 // so the conversation ends after this line
+            speakLocal("Okay, talk to you later!")
+            return
+        }
         if pendingReminder != nil || ReminderParser.isReminderRequest(text) || ReminderParser.isListRequest(text) || ReminderParser.isCancelAll(text) {
             handleReminder(text)
             return

@@ -69,13 +69,20 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, new in
             if new != .active { engine.end() }
+            if new == .active { consumeSiriLaunch() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .botWakeRequested)) { _ in consumeSiriLaunch() }
+        .onAppear { consumeSiriLaunch() }
         .onChange(of: engine.active) { _, on in
             UIApplication.shared.isIdleTimerDisabled = on
         }
         .onChange(of: prefs.brain) { _, _ in engine.refreshBrain() }
         .onChange(of: prefs.webSearch) { _, _ in engine.refreshBrain() }
         .tint(theme.accent)
+    }
+
+    private func consumeSiriLaunch() {
+        if LaunchSignal.shared.consume() { engine.startFromSiri() }
     }
 
     // MARK: Pieces

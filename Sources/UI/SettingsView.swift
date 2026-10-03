@@ -27,6 +27,7 @@ struct SettingsView: View {
                 conversationSection
                 brainSection
                 searchSection
+                siriSection
                 memorySection
                 resetSection
             }
@@ -225,6 +226,14 @@ struct SettingsView: View {
             }
         } header: { Text("Search") } footer: {
             Text("With a Claude key, Claude searches the live web itself (Anthropic bills a small fee per search). Otherwise BOT searches DuckDuckGo (free) and reads the top pages. A Brave Search key from brave.com/search/api makes that more reliable. Only your search words go to the search provider.")
+        }
+    }
+
+    private var siriSection: some View {
+        Section {
+            Label("Say “Hey Siri, talk to BOT”", systemImage: "mic.fill")
+        } header: { Text("Wake up") } footer: {
+            Text("BOT opens and starts listening. Other phrases that work: “Hey Siri, wake up BOT” or “Hey Siri, ask BOT”. If Siri doesn't recognize it, open BOT once and give Siri a minute to learn it. You can also run it from the Shortcuts app (search “Talk to BOT”) and bind it to the Action Button (iOS Settings, Action Button, Shortcut) or Back Tap (Accessibility, Touch, Back Tap). Say “goodbye” to end a conversation.")
         }
     }
 

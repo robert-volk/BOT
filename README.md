@@ -39,6 +39,9 @@ or **Samantha (Enhanced)**. BOT picks the best one automatically, or choose in B
 ## Reminders and timers
 Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or "set a timer for 10 minutes". BOT shows a banner notification and speaks the reminder: live if the app is open, otherwise the notification plays a recording of BOT's own voice (rendered on-device when the reminder is set). The bell icon lists and deletes them; you can also say "what are my reminders" or "clear my reminders". Works with every brain, even Basic mode.
 
+## Waking BOT by voice
+Say **"Hey Siri, talk to BOT"** (also "wake up BOT", "ask BOT"). BOT opens, says "Yes?", and listens. It uses an App Intent, so there's no always-on microphone and no battery cost. It also appears in the Shortcuts app, where it can be bound to the Action Button or Back Tap. Say "goodbye" to end a conversation.
+
 ## Design options (slider icon, top left)
 Live preview with idle / listening / thinking / speaking states, and:
 - **Quick looks**: Classic, Midnight, Frost, Neon, Studio
