@@ -157,7 +157,7 @@ struct Preferences: Codable, Equatable {
     var eyes: EyeStyle = .round
     var mouth: MouthStyle = .bars
     var robotScale: Double = 1.0
-    var animation: Double = 0.8
+    var animationLevel: Double = 0.8
     var showCaptions: Bool = true
     var captionSize: Double = 20
     var haptics: Bool = true

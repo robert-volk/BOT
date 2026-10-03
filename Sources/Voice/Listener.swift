@@ -34,7 +34,7 @@ final class Listener: ObservableObject {
 
     static func configureAudioSession() {
         let s = AVAudioSession.sharedInstance()
-        try? s.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try? s.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try? s.setActive(true)
     }
 

@@ -113,7 +113,7 @@ struct ContentView: View {
         RobotView(style: prefs.robotStyle, eyes: prefs.eyes, mouth: prefs.mouth,
                   accent: theme.accent, isDark: theme.isDark,
                   phase: engine.phase, level: engine.micLevel,
-                  animation: prefs.animation, size: 270 * prefs.robotScale)
+                  animation: prefs.animationLevel, size: 270 * prefs.robotScale)
             .frame(height: 290 * prefs.robotScale)
             .contentShape(Rectangle())
             .onTapGesture { engine.primaryTap() }

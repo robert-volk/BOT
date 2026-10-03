@@ -49,7 +49,7 @@ struct SettingsView: View {
                 RobotView(style: settings.prefs.robotStyle, eyes: settings.prefs.eyes, mouth: settings.prefs.mouth,
                           accent: theme.accent, isDark: theme.isDark, phase: previewPhase,
                           level: previewPhase == .listening ? 0.5 : 0,
-                          animation: settings.prefs.animation, size: 190)
+                          animation: settings.prefs.animationLevel, size: 190)
                     .padding(.vertical, 10)
             }
             .frame(height: 220)
@@ -124,7 +124,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             sliderRow("Size", value: $settings.prefs.robotScale, range: 0.7...1.2, format: "%.2f×")
-            sliderRow("Animation", value: $settings.prefs.animation, range: 0...1, format: "%.0f%%", scale: 100)
+            sliderRow("Animation", value: $settings.prefs.animationLevel, range: 0...1, format: "%.0f%%", scale: 100)
             Toggle("Haptics", isOn: $settings.prefs.haptics)
         }
     }
