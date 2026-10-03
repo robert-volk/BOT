@@ -23,6 +23,7 @@ final class ConversationEngine: ObservableObject {
     let facts: FactStore
     let listener = Listener()
     let speaker = Speaker()
+    private let weather = WeatherService()
 
     private var brain: Brain = BasicBrain(note: nil)
     private var replyTask: Task<Void, Never>?
@@ -210,12 +211,36 @@ final class ConversationEngine: ObservableObject {
             var chunker = SentenceChunker()
             var full = ""
             var failed = false
+            var system = system
+            var direct: String?   // reply that needs no model (Basic mode + live data)
+
+            // Live data the model can't know: look it up first, then let the brain phrase the answer.
+            if WeatherService.isWeatherQuestion(text), let svc = self?.weather {
+                let result = await svc.report(for: text)
+                guard let self, self.replyID == id, !Task.isCancelled else { return }
+                switch result {
+                case .ok(let spoken, let facts):
+                    if brain is BasicBrain { direct = spoken }
+                    else { system += "\n\n\(facts)\nAnswer the weather question from this live data, in a sentence or two, without reading every number." }
+                case .failed(let message):
+                    if brain is BasicBrain { direct = message }
+                    else { system += "\n\nThe weather lookup failed: \(message) Tell them that briefly and kindly." }
+                }
+            }
+
             do {
+                if let direct {
+                    guard let self, self.replyID == id, !Task.isCancelled else { return }
+                    full = direct
+                    self.liveReply = full
+                    for s in chunker.feed(direct + " ") { self.say(s) }
+                } else {
                 for try await delta in brain.respond(system: system, history: history, user: text, maxTokens: maxTokens) {
                     guard let self, self.replyID == id, !Task.isCancelled else { return }
                     full += delta
                     self.liveReply = full
                     for s in chunker.feed(delta) { self.say(s) }
+                }
                 }
             } catch {
                 guard let self, self.replyID == id, !Task.isCancelled else { return }
