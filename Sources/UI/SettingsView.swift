@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var keyField = ""
     @State private var braveField = ""
     @State private var testReport: [String] = []
+    @State private var keyReport: [String] = []
+    @State private var keyTesting = false
     @State private var testing = false
     @State private var voices: [Speaker.VoiceInfo] = []
 
@@ -31,6 +33,7 @@ struct SettingsView: View {
                 voiceSection
                 conversationSection
                 brainSection
+                keyTestSection
                 searchSection
                 siriSection
                 calendarSection
@@ -348,6 +351,27 @@ struct SettingsView: View {
             }
         } header: { Text("Email") } footer: {
             Text("Let BOT read and send email from your iCloud, Yahoo, Gmail or work (IMAP) accounts by voice. Email stays on your phone and never goes to Claude.")
+        }
+    }
+
+    private var keyTestSection: some View {
+        Section {
+            Button {
+                keyTesting = true
+                Task {
+                    keyReport = await engine.testClaudeKey()
+                    keyTesting = false
+                }
+            } label: {
+                Label(keyTesting ? "Testing..." : "Test Claude key", systemImage: "key.fill")
+            }
+            .disabled(keyTesting)
+            ForEach(keyReport, id: \.self) { line in
+                Text(line).font(.footnote)
+                    .foregroundStyle(line.hasPrefix("FAIL") ? Color.red : (line.hasPrefix("OK") ? Color.green : Color.secondary))
+            }
+        } footer: {
+            Text("Shows the start and last four characters of the saved key, so you can match it against your key list in the Anthropic Console, and asks Anthropic whether it accepts it.")
         }
     }
 

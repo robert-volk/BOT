@@ -650,6 +650,29 @@ final class ConversationEngine: ObservableObject {
         }
     }
 
+    // MARK: Claude key test
+
+    /// Shows what's saved (start and last 4 characters only) and asks Anthropic whether it accepts the key.
+    func testClaudeKey() async -> [String] {
+        guard let key = Keychain.get(Self.claudeKeyAccount), !key.isEmpty else {
+            return ["FAIL: no Claude key is saved. Paste one in the box above and tap Save key."]
+        }
+        var lines = ["Saved key: \(key.prefix(12))...\(key.suffix(4)) (\(key.count) characters)"]
+        if !key.unicodeScalars.allSatisfy({ $0.isASCII && $0.value > 32 }) {
+            lines.append("FAIL: the key contains spaces or unusual characters. Remove it, copy it again from the Console, and paste.")
+        }
+        if !key.hasPrefix("sk-ant-api") {
+            lines.append("FAIL: this doesn't look like an API key. It should start with sk-ant-api03. A key starting sk-ant-oat is a Claude Code login token and will not work here; create an API key at console.anthropic.com instead.")
+        }
+        do {
+            _ = try await ClaudeBrain(apiKey: key).complete(system: "Reply with the single word OK.", prompt: "ping", maxTokens: 8)
+            lines.append("OK: Anthropic accepted the key.")
+        } catch {
+            lines.append("FAIL: Anthropic replied: \(error.localizedDescription)")
+        }
+        return lines
+    }
+
     // MARK: Calendar
 
     private func handleCalendar(_ text: String) {
