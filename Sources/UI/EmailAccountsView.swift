@@ -33,6 +33,7 @@ struct EmailAccountsView: View {
                 Text("\u{201C}Read emails from Dana.\u{201D}")
                 Text("\u{201C}Reply that Thursday works.\u{201D}")
                 Text("\u{201C}Email Sam that I'll be late.\u{201D}")
+                Text("\u{201C}Email Sam in Mail that the report is ready.\u{201D} (opens the Mail app, good for work accounts)")
             }
             .font(.footnote)
         }

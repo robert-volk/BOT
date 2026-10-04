@@ -643,6 +643,9 @@ final class ConversationEngine: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             let reply = await self.emailAssistant.respond(to: text, userName: name, onDevice: onDevice)
+            if let url = self.emailAssistant.takeMailURL() {
+                self.afterSpeech = { UIApplication.shared.open(url) }
+            }
             self.speakLocal(reply, isPrivate: true)
         }
     }

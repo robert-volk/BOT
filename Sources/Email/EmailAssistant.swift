@@ -9,7 +9,8 @@ final class EmailAssistant {
         case readUnread
         case readFrom(String)
         case reply(String)
-        case compose(to: String, body: String)
+        case compose(to: String, body: String, viaMail: Bool)
+        case workUnsupported
     }
 
     let service: EmailService
@@ -37,15 +38,36 @@ final class EmailAssistant {
         }
     }
 
+    static let workMessage = "I can't read your work mailbox, but Siri can: try Hey Siri, read my new emails. I can still open the Mail app with a new message for you. Say email, a name, in Mail, and what to say."
+
+    /// "email Sam in Mail ...", "from my work account ..." send a draft to the Mail app instead of BOT's own accounts.
     static func parse(_ raw: String) -> Intent? {
+        var t = raw
+        var viaMail = false
+        let trailing = #"\s*,?\s*\b(?:in|with|using|via|through|from)\s+(?:the |my )?(?:mail app|apple mail|mail|work e-?mail|work account|work mail|work)\b(?:\s+(?:app|account))?"#
+        let leading = #"^(?:please )?(?:open|use|launch)\s+(?:the )?(?:mail app|apple mail|mail)(?:\s+and)?\s+"#
+        if t.range(of: trailing, options: [.regularExpression, .caseInsensitive]) != nil {
+            viaMail = true
+            t = t.replacingOccurrences(of: trailing, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        if t.range(of: leading, options: [.regularExpression, .caseInsensitive]) != nil {
+            viaMail = true
+            t = t.replacingOccurrences(of: leading, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        guard let intent = parseCore(t) else { return viaMail ? .workUnsupported : nil }
+        if case .compose(let to, let body, _) = intent { return .compose(to: to, body: body, viaMail: viaMail) }
+        return viaMail ? .workUnsupported : intent
+    }
+
+    private static func parseCore(_ raw: String) -> Intent? {
         let t = raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?"))
 
         if let g = firstMatch(#"^(?:please )?(?:send|write|compose|draft|shoot)\s+(?:an? |a quick )?e-?mail\s+to\s+(.+?)(?:\s+(?:saying|that says|and say|telling (?:him|her|them)(?: that)?|that|about)\s+(.+))?$"#, in: t)
             ?? firstMatch(#"^e-?mail\s+(.+?)\s+(?:saying|that says|and say|telling (?:him|her|them)(?: that)?|that|about)\s+(.+)$"#, in: t) {
-            return .compose(to: g[0], body: g.count > 1 ? g[1] : "")
+            return .compose(to: g[0], body: g.count > 1 ? g[1] : "", viaMail: false)
         }
         if let g = firstMatch(#"^(?:please )?e-?mail\s+([A-Za-z][A-Za-z .'@-]{1,40})$"#, in: t) {
-            return .compose(to: g[0], body: "")
+            return .compose(to: g[0], body: "", viaMail: false)
         }
         if let g = firstMatch(#"^(?:please )?(?:reply|respond|write back)\b(?:\s+to\s+(?:that|this|it|him|her|them|the e-?mail|that e-?mail|the last one))?[,:]?\s*(?:saying|and say|that says|with|telling (?:him|her|them)(?: that)?|that)?\s*(.*)$"#, in: t) {
             return .reply(g[0])
@@ -104,14 +126,20 @@ final class EmailAssistant {
             if Self.isCancel(text) { return "Okay, never mind." }
             draft.body = await polish(text, to: draft.toName, userName: userName, brain: onDevice)
             if draft.subject.isEmpty { draft.subject = Self.subject(from: text) }
+            if draft.viaMail { return openInMail(draft) }
             pendingDraft = draft
             return readBack(draft)
         }
 
+        guard let intent = Self.parse(text) else { return "Sorry, I didn't catch that." }
+        if case .workUnsupported = intent { return Self.workMessage }
+        // Work mail, or no accounts added: hand the draft to the Mail app.
+        if case .compose(let to, let body, let viaMail) = intent, viaMail || !hasAccounts {
+            return await composeInMail(to: to, body: body, userName: userName, brain: onDevice)
+        }
         guard hasAccounts else {
             return "You haven't added an email account yet. Open Customize, then Email accounts, to add one."
         }
-        guard let intent = Self.parse(text) else { return "Sorry, I didn't catch that." }
 
         switch intent {
         case .check:
@@ -122,7 +150,9 @@ final class EmailAssistant {
             return await readFrom(sender, brain: onDevice)
         case .reply(let instruction):
             return await reply(instruction, userName: userName, brain: onDevice)
-        case .compose(let to, let body):
+        case .workUnsupported:
+            return Self.workMessage
+        case .compose(let to, let body, _):
             return await compose(to: to, body: body, userName: userName, brain: onDevice)
         }
     }
@@ -234,6 +264,41 @@ final class EmailAssistant {
         return readBack(draft)
     }
 
+    // MARK: Mail app hand-off
+
+    private var mailURL: URL?
+
+    /// A mailto: link for the engine to open once BOT has finished speaking.
+    func takeMailURL() -> URL? {
+        defer { mailURL = nil }
+        return mailURL
+    }
+
+    private func composeInMail(to: String, body: String, userName: String?, brain: Brain?) async -> String {
+        guard let (name, address) = await resolveRecipient(to, preferWork: true) else {
+            return "I couldn't find an email address for \(to). Try saying the address, or add it to your contacts."
+        }
+        var draft = EmailDraft(accountID: UUID(), accountLabel: "Mail", toName: name, to: address,
+                               subject: "", body: "", inReplyTo: nil, references: nil)
+        draft.viaMail = true
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            awaitingBody = draft
+            return "What would you like to say to \(name)?"
+        }
+        draft.subject = Self.subject(from: trimmed)
+        draft.body = await polish(trimmed, to: name, userName: userName, brain: brain)
+        return openInMail(draft)
+    }
+
+    private func openInMail(_ d: EmailDraft) -> String {
+        let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+?#"))
+        let subject = d.subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let body = d.body.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        mailURL = URL(string: "mailto:\(d.to)?subject=\(subject)&body=\(body)")
+        return "Opening Mail with your message to \(d.toName). Choose your work account as the sender, check it, and tap Send."
+    }
+
     private func readBack(_ d: EmailDraft) -> String {
         "Here's the email to \(d.toName), from your \(d.accountLabel) account. Subject: \(d.subject). "
             + "It says: " + d.body.replacingOccurrences(of: "\n", with: " ") + " Say send it to send, or cancel."
@@ -261,7 +326,7 @@ final class EmailAssistant {
     }
 
     /// A spoken address ("sam at gmail dot com") or a contact's email.
-    private func resolveRecipient(_ spoken: String) async -> (String, String)? {
+    private func resolveRecipient(_ spoken: String, preferWork: Bool = false) async -> (String, String)? {
         let normalized = spoken.lowercased()
             .replacingOccurrences(of: " at ", with: "@")
             .replacingOccurrences(of: " dot ", with: ".")
@@ -270,7 +335,7 @@ final class EmailAssistant {
             return (normalized, normalized)
         }
         guard await phone.requestAccess() else { return nil }
-        guard let match = phone.findEmail(spoken) else { return nil }
+        guard let match = phone.findEmail(spoken, preferWork: preferWork) else { return nil }
         return match
     }
 }

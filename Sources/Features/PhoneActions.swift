@@ -101,7 +101,7 @@ final class PhoneActions {
     }
 
     /// (display name, email address) for a spoken contact name.
-    func findEmail(_ spokenName: String) -> (String, String)? {
+    func findEmail(_ spokenName: String, preferWork: Bool = false) -> (String, String)? {
         let name = spokenName.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"^(?:my |the )"#, with: "", options: [.regularExpression, .caseInsensitive])
         guard !name.isEmpty else { return nil }
@@ -119,7 +119,8 @@ final class PhoneActions {
         }
         guard let contact = contacts.first(where: { !$0.emailAddresses.isEmpty }) else { return nil }
         let display = CNContactFormatter.string(from: contact, style: .fullName) ?? name
-        return (display, contact.emailAddresses[0].value as String)
+        let chosen = (preferWork ? contact.emailAddresses.first { $0.label == CNLabelWork } : nil) ?? contact.emailAddresses[0]
+        return (display, chosen.value as String)
     }
 
     // MARK: Opening other apps (must be done while BOT is on screen)

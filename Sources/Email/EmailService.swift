@@ -123,6 +123,7 @@ struct EmailDraft {
     var body: String
     var inReplyTo: String?
     var references: String?
+    var viaMail = false
 }
 
 struct UnreadReport {
