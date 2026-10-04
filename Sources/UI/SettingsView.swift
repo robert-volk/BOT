@@ -51,6 +51,10 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: settings.prefs.calendarLead) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
+            .onChange(of: settings.prefs.speakInBackground) { _, on in
+                reminders.backgroundSpeech = on
+                Task { await calendar.sync(with: settings.prefs) }
+            }
         }
         .tint(theme.accent)
     }
@@ -282,12 +286,13 @@ struct SettingsView: View {
                 Label(testing ? "Testing..." : "Test spoken alert", systemImage: "bell.and.waves.left.and.right")
             }
             .disabled(testing)
+            Toggle("Speak alerts even in silent mode", isOn: $settings.prefs.speakInBackground)
             ForEach(testReport, id: \.self) { line in
                 Text(line).font(.footnote)
                     .foregroundStyle(line.hasPrefix("FAIL") || line.hasPrefix("FIX") ? Color.red : Color.secondary)
             }
         } header: { Text("Reminder sound") } footer: {
-            Text("Checks that BOT can record its voice for lock-screen alerts, plays it, then sends a test alert in 10 seconds.")
+            Text("The test checks that BOT can record its voice, plays it, then sends a test alert in 10 seconds. If notification sounds stay silent (silent switch, Focus), turn on the switch above: BOT then stays alive in the background and speaks reminders and meeting alerts itself, which ignores the silent switch. It uses more battery while an alert is pending, and it stops working if you force-quit BOT.")
         }
     }
 

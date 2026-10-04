@@ -32,6 +32,10 @@
 	<string>BOT listens to your voice so you can talk to it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>BOT turns what you say into text, on your device, so it can reply.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

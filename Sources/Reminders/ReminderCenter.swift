@@ -28,6 +28,14 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     private var writers: [String: SoundWriter] = [:]
     private var testPlayer: AVAudioPlayer?
 
+    // Spoken-in-app alerts (works with the silent switch on): timers + a silent audio loop keep BOT alive.
+    private struct Alert { var fire: Date; var line: String }
+    private var alerts: [String: Alert] = [:]
+    private var timers: [String: Timer] = [:]
+    private var announced = Set<String>()
+    private let keepAlive = SilentKeepAlive()
+    var backgroundSpeech = false { didSet { if oldValue != backgroundSpeech { refreshAlerts() } } }
+
     override init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("BOT", isDirectory: true)
@@ -37,6 +45,44 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         UNUserNotificationCenter.current().delegate = self
         load()
         prune()
+        for r in items { alerts[r.id.uuidString] = Alert(fire: r.fire, line: ReminderParser.spokenLine(for: r.task)) }
+    }
+
+    // MARK: In-app spoken alerts
+
+    func registerAlert(key: String, fire: Date, line: String) {
+        alerts[key] = Alert(fire: fire, line: line)
+        refreshAlerts()
+    }
+
+    func unregisterAlerts(prefix: String) {
+        for k in alerts.keys where k.hasPrefix(prefix) { alerts[k] = nil }
+        refreshAlerts()
+    }
+
+    private func refreshAlerts() {
+        timers.values.forEach { $0.invalidate() }
+        timers.removeAll()
+        let now = Date()
+        alerts = alerts.filter { $0.value.fire > now.addingTimeInterval(-5) }
+        guard backgroundSpeech else { keepAlive.stop(); return }
+
+        for (key, alert) in alerts {
+            let delay = max(0.1, alert.fire.timeIntervalSinceNow)
+            timers[key] = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.fired(id: key, spoken: alert.line, speak: true, key: key) }
+            }
+        }
+        if alerts.values.contains(where: { $0.fire.timeIntervalSinceNow < 24 * 3600 }) {
+            keepAlive.start()
+        } else {
+            keepAlive.stop()
+        }
+    }
+
+    private func deliver(key: String, line: String) {
+        guard announced.insert(key).inserted else { return }   // the timer and the notification both try; speak once
+        onForegroundFire?(line)
     }
 
     // MARK: Scheduling
@@ -46,12 +92,17 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
 
         let reminder = Reminder(task: task, fire: fire)
         let line = ReminderParser.spokenLine(for: task)
-        let soundName = await makeSpeechSound(id: reminder.id, line: String(line.prefix(140)), voiceID: voiceID, rate: rate, pitch: pitch)
+        let soundName: String? = backgroundSpeech ? nil
+            : await makeSpeechSound(id: reminder.id, line: String(line.prefix(140)), voiceID: voiceID, rate: rate, pitch: pitch)
 
         let content = UNMutableNotificationContent()
         content.title = "BOT reminder"
         content.body = ReminderParser.bannerText(for: task)
-        content.sound = soundName.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+        if backgroundSpeech {
+            content.sound = nil
+        } else {
+            content.sound = soundName.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+        }
         content.userInfo = ["id": reminder.id.uuidString, "spoken": line]
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, fire.timeIntervalSinceNow), repeats: false)
@@ -61,7 +112,9 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         items.append(reminder)
         items.sort { $0.fire < $1.fire }
         save()
-        return .scheduled(spokenBanner: soundName != nil)
+        alerts[reminder.id.uuidString] = Alert(fire: fire, line: line)
+        refreshAlerts()
+        return .scheduled(spokenBanner: soundName != nil || backgroundSpeech)
     }
 
     func remove(_ r: Reminder) {
@@ -69,6 +122,8 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         deleteSound(r.id)
         items.removeAll { $0.id == r.id }
         save()
+        alerts[r.id.uuidString] = nil
+        refreshAlerts()
     }
 
     func cancelAll() {
@@ -76,6 +131,8 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         items.forEach { deleteSound($0.id) }
         items.removeAll()
         save()
+        alerts = alerts.filter { UUID(uuidString: $0.key) == nil }   // keep calendar alerts
+        refreshAlerts()
     }
 
     func spokenList() -> String {
@@ -184,7 +241,13 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         let content = UNMutableNotificationContent()
         content.title = "BOT sound test"
         content.body = rendered == nil ? "You should hear the default chime." : "You should hear BOT's voice."
-        content.sound = rendered.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+        if backgroundSpeech {
+            content.sound = nil
+            content.body = "BOT will say the test sentence itself."
+            registerAlert(key: "bot-test", fire: Date().addingTimeInterval(10), line: "This is a test of my spoken alert.")
+        } else {
+            content.sound = rendered.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+        }
         let request = UNNotificationRequest(identifier: "bot-test", content: content,
                                             trigger: UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false))
         try? await center.add(request)
@@ -194,13 +257,19 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
 
     // MARK: Delivery
 
-    private func fired(id: String?, spoken: String?, speak: Bool) {
+    private func fired(id: String?, spoken: String?, speak: Bool, key: String? = nil) {
         if let id, let uuid = UUID(uuidString: id) {
             deleteSound(uuid)
             items.removeAll { $0.id == uuid }
             save()
         }
-        if speak, let spoken { onForegroundFire?(spoken) }
+        if let key {
+            alerts[key] = nil
+            timers[key]?.invalidate()
+            timers[key] = nil
+        }
+        if speak, let spoken { deliver(key: key ?? id ?? spoken, line: spoken) }
+        refreshAlerts()
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -208,7 +277,8 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         let info = notification.request.content.userInfo
         let id = info["id"] as? String
         let spoken = info["spoken"] as? String
-        Task { @MainActor in self.fired(id: id, spoken: spoken, speak: true) }
+        let key = notification.request.identifier
+        Task { @MainActor in self.fired(id: id, spoken: spoken, speak: true, key: key) }
         completionHandler([.banner, .list])   // BOT speaks it itself, so no notification sound here
     }
 

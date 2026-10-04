@@ -88,6 +88,7 @@ final class CalendarCenter: ObservableObject {
         let pending = await center.pendingNotificationRequests()
         let old = pending.map(\.identifier).filter { $0.hasPrefix(Self.idPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: old)
+        reminders.unregisterAlerts(prefix: Self.idPrefix)
 
         guard prefs.calendarAlerts, authorized, await reminders.ensureAuthorized() else {
             cleanSounds(keeping: [])
@@ -110,8 +111,11 @@ final class CalendarCenter: ObservableObject {
                 : "Heads up. \(name) starts in \(lead) minutes."
 
             let soundFile = Self.soundPrefix + Self.hash(line) + ".caf"
-            let rendered = await reminders.speechSound(named: soundFile, line: line, voiceID: prefs.voiceID,
+            var rendered: String?
+            if !prefs.speakInBackground {
+                rendered = await reminders.speechSound(named: soundFile, line: line, voiceID: prefs.voiceID,
                                                        rate: Float(prefs.rate), pitch: Float(prefs.pitch))
+            }
             if rendered != nil { keep.insert(soundFile) }
 
             let content = UNMutableNotificationContent()
@@ -119,13 +123,18 @@ final class CalendarCenter: ObservableObject {
             content.subtitle = name
             let loc = place(e)
             content.body = timeFmt.string(from: e.startDate) + (loc.isEmpty ? "" : " · \(loc)")
-            content.sound = rendered.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+            if prefs.speakInBackground {
+                content.sound = nil
+            } else {
+                content.sound = rendered.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+            }
             content.threadIdentifier = "bot-calendar"
             content.userInfo = ["spoken": line]
 
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fire.timeIntervalSince(now), repeats: false)
             let id = Self.idPrefix + (e.eventIdentifier ?? name) + "-\(Int(e.startDate.timeIntervalSince1970))"
             try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+            reminders.registerAlert(key: id, fire: fire, line: line)
         }
         cleanSounds(keeping: keep)
     }

@@ -12,6 +12,7 @@ struct BOTApp: App {
         let s = AppSettings()
         let f = FactStore()
         let r = ReminderCenter()
+        r.backgroundSpeech = s.prefs.speakInBackground
         let c = CalendarCenter(reminders: r)
         _settings = StateObject(wrappedValue: s)
         _facts = StateObject(wrappedValue: f)
