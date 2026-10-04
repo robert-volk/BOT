@@ -26,6 +26,7 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
 
     private let fileURL: URL
     private var writers: [String: SoundWriter] = [:]
+    private var testPlayer: AVAudioPlayer?
 
     override init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -137,6 +138,58 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
             try? FileManager.default.removeItem(at: url)
         }
         return nil
+    }
+
+    // MARK: Diagnostics
+
+    /// Checks notification settings, renders BOT's voice to a file, plays it in-app, and schedules a test alert in 10 s.
+    func runAlertTest(voiceID: String?, rate: Float, pitch: Float) async -> [String] {
+        var out: [String] = []
+        guard await ensureAuthorized() else {
+            return ["Notifications are OFF for BOT. Turn them on in iPhone Settings > Notifications > BOT."]
+        }
+        let center = UNUserNotificationCenter.current()
+        let s = await center.notificationSettings()
+        func word(_ v: UNNotificationSetting) -> String { v == .enabled ? "on" : (v == .disabled ? "OFF" : "n/a") }
+        out.append("Banners: \(word(s.alertSetting)), Sounds: \(word(s.soundSetting)), Lock Screen: \(word(s.lockScreenSetting))")
+        if s.soundSetting != .enabled {
+            out.append("FIX: Sounds are off for BOT. Turn on Settings > Notifications > BOT > Sounds.")
+        }
+
+        let name = "bot-test.caf"
+        let url = Self.soundsDirectory.appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: url)
+        Listener.configureAudioSession()
+        let rendered = await speechSound(named: name, line: "This is a test of my spoken alert.",
+                                         voiceID: voiceID, rate: rate, pitch: pitch)
+        if rendered == nil {
+            out.append("FAIL: could not record BOT's voice to a file with any voice, so alerts use the default chime.")
+        } else {
+            let bytes = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int) ?? 0
+            if let f = try? AVAudioFile(forReading: url) {
+                let secs = Double(f.length) / f.fileFormat.sampleRate
+                out.append(String(format: "OK: voice file recorded: %.1f s, %d Hz, %d KB", secs, Int(f.fileFormat.sampleRate), bytes / 1024))
+            } else {
+                out.append("FAIL: the recorded file can't be read back (\(bytes) bytes).")
+            }
+            if let player = try? AVAudioPlayer(contentsOf: url) {
+                testPlayer = player
+                player.play()
+                out.append("Playing the file now. Did you hear BOT say a test sentence? If yes, the file is fine.")
+            } else {
+                out.append("FAIL: the file can't be played.")
+            }
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "BOT sound test"
+        content.body = rendered == nil ? "You should hear the default chime." : "You should hear BOT's voice."
+        content.sound = rendered.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+        let request = UNNotificationRequest(identifier: "bot-test", content: content,
+                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false))
+        try? await center.add(request)
+        out.append("Test alert arrives in 10 seconds. Press the side button to lock the phone now, with the ringer switch off (no orange).")
+        return out
     }
 
     // MARK: Delivery

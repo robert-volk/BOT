@@ -6,12 +6,15 @@ struct SettingsView: View {
     @EnvironmentObject var engine: ConversationEngine
     @EnvironmentObject var facts: FactStore
     @EnvironmentObject var calendar: CalendarCenter
+    @EnvironmentObject var reminders: ReminderCenter
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
 
     @State private var previewPhase: Phase = .idle
     @State private var keyField = ""
     @State private var braveField = ""
+    @State private var testReport: [String] = []
+    @State private var testing = false
     @State private var voices: [Speaker.VoiceInfo] = []
 
     private var theme: Theme { Theme(prefs: settings.prefs, scheme: scheme) }
@@ -30,6 +33,7 @@ struct SettingsView: View {
                 searchSection
                 siriSection
                 calendarSection
+                alertTestSection
                 memorySection
                 resetSection
             }
@@ -261,6 +265,29 @@ struct SettingsView: View {
             Toggle("Let Claude see my schedule", isOn: $settings.prefs.calendarToClaude)
         } header: { Text("Calendar") } footer: {
             Text("BOT reads your calendar but never changes it. Alerts show a banner and speak the meeting aloud, and are scheduled for the next 3 days each time you open BOT, so open it every few days and after your schedule changes. You can ask “What’s on my calendar today?” or “When’s my next meeting?”. The on-device AI always sees your next two days; Claude only does if you turn on the last switch, because that sends event titles to Anthropic.")
+        }
+    }
+
+    private var alertTestSection: some View {
+        Section {
+            Button {
+                testing = true
+                Task {
+                    testReport = await reminders.runAlertTest(voiceID: settings.prefs.voiceID,
+                                                              rate: Float(settings.prefs.rate),
+                                                              pitch: Float(settings.prefs.pitch))
+                    testing = false
+                }
+            } label: {
+                Label(testing ? "Testing..." : "Test spoken alert", systemImage: "bell.and.waves.left.and.right")
+            }
+            .disabled(testing)
+            ForEach(testReport, id: \.self) { line in
+                Text(line).font(.footnote)
+                    .foregroundStyle(line.hasPrefix("FAIL") || line.hasPrefix("FIX") ? Color.red : Color.secondary)
+            }
+        } header: { Text("Reminder sound") } footer: {
+            Text("Checks that BOT can record its voice for lock-screen alerts, plays it, then sends a test alert in 10 seconds.")
         }
     }
 

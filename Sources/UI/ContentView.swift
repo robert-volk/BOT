@@ -45,7 +45,7 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: engine.learnedToast)
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar)
+            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showMemory) {
