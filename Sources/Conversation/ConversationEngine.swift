@@ -9,7 +9,7 @@ enum Phase: Equatable {
 @MainActor
 final class ConversationEngine: ObservableObject {
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var turns: [ChatTurn] = []
+    @Published private(set) var turns: [ChatTurn] = [] { didSet { saveHistory() } }
     /// The assistant's reply as it streams in (shown as captions).
     @Published private(set) var liveReply = ""
     @Published private(set) var active = false
@@ -23,6 +23,12 @@ final class ConversationEngine: ObservableObject {
     let facts: FactStore
     let reminders: ReminderCenter
     let calendar: CalendarCenter
+    let lists: ListStore
+    private let phoneActions = PhoneActions()
+    private let historyURL: URL
+    @Published var cameraQuestion: String?
+    private var afterSpeech: (() -> Void)?
+    private var lastPlace: String?
     let listener = Listener()
     let speaker = Speaker()
     private let weather = WeatherService()
@@ -39,14 +45,21 @@ final class ConversationEngine: ObservableObject {
     static let claudeKeyAccount = "claude-api-key"
     static let braveKeyAccount = "brave-api-key"
 
-    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter) {
+    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter, lists: ListStore) {
         self.settings = settings
         self.facts = facts
         self.reminders = reminders
         self.calendar = calendar
+        self.lists = lists
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BOT", isDirectory: true)
+        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        self.historyURL = support.appendingPathComponent("history.json")
+        self.turns = Self.loadHistory(support.appendingPathComponent("history.json"))
         listener.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         speaker.onIdle = { [weak self] in self?.speechDidFinish() }
         reminders.onForegroundFire = { [weak self] line in self?.announce(line) }
+        reminders.onBriefing = { [weak self] in self?.startBriefing() }
         refreshBrain()
     }
 
@@ -224,6 +237,11 @@ final class ConversationEngine: ObservableObject {
             speakLocal("Okay, talk to you later!")
             return
         }
+        if ReminderParser.isSnooze(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            snooze(text)
+            return
+        }
         if pendingReminder != nil || ReminderParser.isReminderRequest(text) || ReminderParser.isListRequest(text) || ReminderParser.isCancelAll(text) {
             handleReminder(text)
             return
@@ -233,6 +251,7 @@ final class ConversationEngine: ObservableObject {
             handleCalendar(text)
             return
         }
+        if handleFeatures(text) { return }
 
         let history = turns
         turns.append(ChatTurn(role: .user, text: text))
@@ -321,6 +340,289 @@ final class ConversationEngine: ObservableObject {
         return WebSearchService.query(for: text, basic: basic)
     }
 
+    // MARK: Features (local intents: handled instantly, any brain)
+
+    private func handleFeatures(_ text: String) -> Bool {
+        if BriefingService.isBriefingRequest(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            runBriefing()
+            return true
+        }
+        if let intent = ListIntent.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            handleList(intent)
+            return true
+        }
+        if let conversion = Conversions.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            phase = .thinking
+            Task { [weak self] in
+                let answer = await Conversions.convert(conversion)
+                self?.speakLocal(answer)
+            }
+            return true
+        }
+        if let request = Translator.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            translate(request)
+            return true
+        }
+        if let intent = PhoneIntent.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            handlePhone(intent)
+            return true
+        }
+        if Self.isHistoryQuestion(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            answerHistory(text)
+            return true
+        }
+        if Self.isCameraRequest(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            active = false
+            cameraQuestion = text
+            speakLocal("Okay. Point the camera and tap the shutter.")
+            return true
+        }
+        return false
+    }
+
+    // MARK: Daily briefing
+
+    /// Used by the menu and the alarm: stop whatever is happening, then brief.
+    func requestBriefing() { startBriefing() }
+
+    private func startBriefing() {
+        active = false
+        cancelReply()
+        speaker.stop()
+        listener.cancel()
+        Listener.configureAudioSession()
+        runBriefing()
+    }
+
+    private func runBriefing() {
+        phase = .thinking
+        let name = facts.userName
+        Task { [weak self] in
+            guard let self else { return }
+            async let news = BriefingService.headlines()
+            var parts = [BriefingService.greeting(name: name)]
+            if case .ok(let spoken, _) = await self.weather.report(for: "weather today") { parts.append(spoken) }
+            if self.calendar.authorized { parts.append(self.calendar.spokenAgenda(for: "today")) }
+            let today = self.reminders.items.filter { Calendar.current.isDateInToday($0.fire) }
+            if !today.isEmpty {
+                parts.append("Reminders today: " + ListStore.joined(today.map { ReminderParser.secondPerson($0.task) }) + ".")
+            }
+            let headlines = await news
+            if !headlines.isEmpty { parts.append("In the news: " + headlines.joined(separator: ". ") + ".") }
+            self.speakLocal(parts.joined(separator: " "))
+        }
+    }
+
+    // MARK: Lists & notes
+
+    private func handleList(_ intent: ListIntent) {
+        switch intent {
+        case .add(let items, let list):
+            guard !items.isEmpty else { speakLocal("What should I add?"); return }
+            let added = lists.add(items, to: list)
+            speakLocal(added.isEmpty ? "That's already on your \(list) list." : "Added \(ListStore.joined(added)) to your \(list) list.")
+        case .read(let list):
+            speakLocal(lists.spokenList(list))
+        case .remove(let item, let list):
+            speakLocal(lists.remove(item, from: list) ? "Removed \(item) from your \(list) list." : "I couldn't find \(item) on your \(list) list.")
+        case .clear(let list):
+            lists.clear(list)
+            speakLocal("I've cleared your \(list) list.")
+        case .note(let text):
+            lists.addNote(text)
+            speakLocal("Noted.")
+        case .readNotes:
+            speakLocal(lists.spokenNotes(lists.data.notes))
+        case .searchNotes(let topic):
+            speakLocal(lists.spokenNotes(lists.searchNotes(topic)))
+        }
+    }
+
+    // MARK: Translation
+
+    private func translate(_ r: Translator.Request) {
+        phase = .thinking
+        let brain = self.brain
+        Task { [weak self] in
+            guard let self else { return }
+            if brain is BasicBrain {
+                self.speakLocal("Translation needs the AI brain. Add a Claude key, or turn on Apple Intelligence, in Customize under Brain.")
+                return
+            }
+            let out = (try? await brain.complete(system: Translator.systemPrompt, prompt: Translator.prompt(r), maxTokens: 150)) ?? ""
+            let translation = out.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"\u{201C}\u{201D}'")))
+            guard !translation.isEmpty, translation.uppercased() != "NONE" else {
+                self.speakLocal("Sorry, I couldn't translate that.")
+                return
+            }
+            self.speakTranslation(intro: "In \(r.language):", text: translation, code: r.code, language: r.language)
+        }
+    }
+
+    private func speakTranslation(intro: String, text: String, code: String, language: String) {
+        applyVoice()
+        let shown = "\(language): \(text)"
+        liveReply = shown
+        turns.append(ChatTurn(role: .assistant, text: shown))
+        phase = .speaking
+        speaker.enqueue(intro)
+        speaker.enqueue(text, language: code)
+        speaker.finishInput()
+    }
+
+    // MARK: Call, text, directions, nearby
+
+    private func handlePhone(_ intent: PhoneIntent) {
+        phase = .thinking
+        Task { [weak self] in
+            guard let self else { return }
+            switch intent {
+            case .directions(let place):
+                let destination = (place == "there" || place == "it") ? (self.lastPlace ?? "") : place
+                guard !destination.isEmpty else { self.speakLocal("Where would you like to go?"); return }
+                self.afterSpeech = { [weak self] in self?.phoneActions.openDirections(to: destination) }
+                self.speakLocal("Getting directions to \(destination).")
+            case .nearby(let query):
+                await self.findNearby(query)
+            case .call(let name), .text(let name, _):
+                guard await self.phoneActions.requestAccess() else {
+                    self.speakLocal(self.phoneActions.isDenied
+                        ? "I need access to your contacts. Turn on Contacts for BOT in iPhone Settings, under Privacy and Security."
+                        : "Okay, I won't look at your contacts.")
+                    return
+                }
+                guard let match = self.phoneActions.find(name) else {
+                    self.speakLocal("I couldn't find \(name) in your contacts.")
+                    return
+                }
+                if case .text(_, let body) = intent {
+                    self.afterSpeech = { [weak self] in self?.phoneActions.openText(match.number, body: body) }
+                    self.speakLocal(body.isEmpty ? "Opening a message to \(match.name)."
+                                                 : "Okay. Here's your message to \(match.name). Tap send when you're ready.")
+                } else {
+                    self.afterSpeech = { [weak self] in self?.phoneActions.openCall(match.number) }
+                    self.speakLocal("Calling \(match.name).")
+                }
+            }
+        }
+    }
+
+    private func findNearby(_ query: String) async {
+        guard let here = await LocationService.shared.current() else {
+            speakLocal("I need location access to find places near you. Turn it on for BOT in iPhone Settings, under Privacy and Security.")
+            return
+        }
+        let places = await LocationService.shared.nearby(query, around: here)
+        guard let first = places.first else {
+            speakLocal("I couldn't find any \(query) near you.")
+            return
+        }
+        lastPlace = first.name
+        func distance(_ p: NearbyPlace) -> String { p.miles < 0.1 ? "right nearby" : String(format: "%.1f miles away", p.miles) }
+        var reply = "The closest is \(first.name), \(distance(first))."
+        if places.count > 1 {
+            reply += " Next are " + ListStore.joined(places.dropFirst().map { "\($0.name), \(distance($0))" }) + "."
+        }
+        reply += " Say directions there, and I'll open Maps."
+        speakLocal(reply)
+    }
+
+    // MARK: Conversation history
+
+    private static func loadHistory(_ url: URL) -> [ChatTurn] {
+        guard let data = try? Data(contentsOf: url), let decoded = try? JSONDecoder().decode([ChatTurn].self, from: data) else { return [] }
+        let cutoff = Date().addingTimeInterval(-30 * 86400)
+        return decoded.filter { $0.date > cutoff }
+    }
+
+    private func saveHistory() {
+        guard let data = try? JSONEncoder().encode(Array(turns.suffix(400))) else { return }
+        try? data.write(to: historyURL, options: .atomic)
+    }
+
+    private static func isHistoryQuestion(_ t: String) -> Bool {
+        t.range(of: #"\bwhat (?:did|were) we (?:talk|chat|discuss|talking|chatting|discussing)\b|\bwhat have we (?:talked|chatted|discussed)\b|\bremind me what we (?:talked|discussed)\b"#,
+                options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func answerHistory(_ text: String) {
+        let lower = text.lowercased()
+        let cal = Calendar.current
+        let previous = Array(turns.dropLast())   // everything before this question
+        let day: Date? = lower.contains("yesterday") ? cal.date(byAdding: .day, value: -1, to: Date())
+            : (lower.contains("today") ? Date() : nil)
+        let relevant = previous.filter { t in day.map { cal.isDate(t.date, inSameDayAs: $0) } ?? true }
+        let userLines = relevant.filter { $0.role == .user }
+        guard !userLines.isEmpty else {
+            speakLocal(day == nil ? "We haven't talked about anything yet." : "We didn't talk then.")
+            return
+        }
+        if brain is BasicBrain {
+            speakLocal("You asked about: " + ListStore.joined(userLines.suffix(4).map { String($0.text.prefix(60)) }) + ".")
+            return
+        }
+        phase = .thinking
+        var transcript = ""
+        for t in relevant.suffix(30) {
+            transcript += (t.role == .user ? "Them: " : "You: ") + String(t.text.prefix(160)) + "\n"
+        }
+        let system = "You summarize past conversations aloud in two or three casual spoken sentences. No lists, no markdown."
+        let prompt = "Question: \"\(text)\"\n\nConversation:\n\(transcript)\nSummarize what we talked about, speaking to them as 'you'."
+        let b = brain
+        Task { [weak self] in
+            let out = (try? await b.complete(system: system, prompt: prompt, maxTokens: 160)) ?? ""
+            let answer = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            self?.speakLocal(answer.isEmpty || answer.uppercased() == "NONE" ? "I couldn't pull that up." : answer)
+        }
+    }
+
+    // MARK: Camera
+
+    private static func isCameraRequest(_ t: String) -> Bool {
+        t.range(of: #"\b(?:what is this|what'?s this|what am i looking at|look at this|what does this say|read this|identify this|scan this|use the camera|take a (?:picture|photo)|is this safe)\b"#,
+                options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    func requestCamera(_ question: String) {
+        end()
+        cameraQuestion = question
+    }
+
+    func describePhoto(_ jpegData: Data, question: String) {
+        guard let claude = brain as? ClaudeBrain else {
+            speakLocal("Looking at photos needs a Claude key. Add one in Customize, under Brain.")
+            return
+        }
+        phase = .thinking
+        let image = Self.resized(jpegData)
+        let system = "You are \(prefs.botName), a voice assistant looking through the user's phone camera. Answer what they asked about the photo in two or three short spoken sentences. No markdown, no lists."
+        Task { [weak self] in
+            do {
+                let text = try await claude.vision(system: system, jpeg: image, question: question, maxTokens: 220)
+                self?.speakLocal(text.isEmpty ? "I couldn't make that out." : text)
+            } catch {
+                self?.errorNote = error.localizedDescription
+                self?.speakLocal("Sorry, I couldn't look at that one.")
+            }
+        }
+    }
+
+    private static func resized(_ data: Data) -> Data {
+        guard let image = UIImage(data: data) else { return data }
+        let longest = max(image.size.width, image.size.height)
+        let scale = min(1, 1024 / longest)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let out = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        return out.jpegData(compressionQuality: 0.7) ?? data
+    }
+
     // MARK: Calendar
 
     private func handleCalendar(_ text: String) {
@@ -348,6 +650,7 @@ final class ConversationEngine: ObservableObject {
     private struct PendingReminder {
         var task: String?
         var date: Date?
+        var rule: String?
     }
     private var pendingReminder: PendingReminder?
 
@@ -372,14 +675,17 @@ final class ConversationEngine: ObservableObject {
 
         var task: String?
         var date: Date?
+        var rule: String?
         if let p = pendingReminder, !ReminderParser.isReminderRequest(text) {
             // They're answering "when?" or "what about?"
             task = p.task
             date = p.date
+            rule = p.rule
             if date == nil {
                 let parsed = ReminderParser.parse(text)
                 date = parsed.date
                 if task == nil { task = parsed.task }
+                if rule == nil { rule = parsed.repeatRule }
             } else if task == nil {
                 task = text
             }
@@ -387,37 +693,52 @@ final class ConversationEngine: ObservableObject {
             let parsed = ReminderParser.parse(text)
             task = parsed.task
             date = parsed.date
+            rule = parsed.repeatRule
         }
         pendingReminder = nil
 
         guard let when = date else {
-            pendingReminder = PendingReminder(task: task, date: nil)
+            pendingReminder = PendingReminder(task: task, date: nil, rule: rule)
             speakLocal(task == nil ? "Sure. What should I remind you about, and when?" : "When should I remind you?")
             return
         }
         guard let what = task else {
-            pendingReminder = PendingReminder(task: nil, date: when)
+            pendingReminder = PendingReminder(task: nil, date: when, rule: rule)
             speakLocal("What should I remind you about?")
             return
         }
+        let resolved = ReminderParser.finalizeRepeat(rule: rule, date: when)
+        scheduleReminder(task: what, when: resolved.date, rule: resolved.rule, announcement: nil)
+    }
 
+    private func scheduleReminder(task what: String, when: Date, rule: String?, announcement: String?) {
         phase = .thinking
         let voice = prefs.voiceID, rate = Float(prefs.rate), pitch = Float(prefs.pitch)
         Task { [weak self] in
             guard let self else { return }
-            let outcome = await self.reminders.schedule(task: what, fire: when, voiceID: voice, rate: rate, pitch: pitch)
+            let outcome = await self.reminders.schedule(task: what, fire: when, voiceID: voice, rate: rate, pitch: pitch, repeatRule: rule)
             switch outcome {
             case .needsPermission:
                 self.speakLocal("I need notification permission to remind you. Turn on notifications for BOT in the iPhone Settings app, then ask me again.")
             case .scheduled(let spokenBanner):
-                let whenText = ReminderParser.whenPhrase(when)
-                var reply = what == ReminderParser.timerTask
+                let whenText = rule.map { ReminderParser.repeatPhrase($0, at: when) } ?? ReminderParser.whenPhrase(when)
+                var reply = announcement ?? (what == ReminderParser.timerTask
                     ? "Okay, timer set \(whenText)."
-                    : "Got it. I'll remind you \(whenText): \(ReminderParser.secondPerson(what))."
+                    : "Got it. I'll remind you \(whenText): \(ReminderParser.secondPerson(what)).")
                 if !spokenBanner { reply += " I couldn't prepare a spoken alert, so when the app is closed you'll get the banner and a chime." }
                 self.speakLocal(reply)
             }
         }
+    }
+
+    private func snooze(_ text: String) {
+        guard let task = reminders.lastFiredTask else {
+            speakLocal("I don't have a reminder to snooze.")
+            return
+        }
+        let minutes = ReminderParser.snoozeMinutes(text)
+        scheduleReminder(task: task, when: Date().addingTimeInterval(Double(minutes) * 60), rule: nil,
+                         announcement: "Okay, snoozed for \(minutes) minute\(minutes == 1 ? "" : "s").")
     }
 
     /// A reminder fired while the app was open: say it out loud right now.
@@ -428,6 +749,10 @@ final class ConversationEngine: ObservableObject {
         listener.cancel()
         Listener.configureAudioSession()
         speakLocal(line)
+        if line.hasPrefix("Reminder") || line.hasPrefix("Your timer") {
+            active = true        // listen once afterwards, so you can say "snooze"
+            emptyStreak = 1
+        }
     }
 
     private func say(_ sentence: String) {
@@ -447,6 +772,13 @@ final class ConversationEngine: ObservableObject {
     private func speechDidFinish() {
         guard phase == .speaking else { return }
         flushExtraction()
+        if let action = afterSpeech {
+            afterSpeech = nil
+            active = false
+            phase = .idle
+            action()
+            return
+        }
         if active && prefs.handsFree {
             startListening()
         } else {

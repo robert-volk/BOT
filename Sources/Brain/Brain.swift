@@ -1,10 +1,11 @@
 import Foundation
 
-struct ChatTurn: Identifiable, Equatable {
-    enum Role { case user, assistant }
-    let id = UUID()
+struct ChatTurn: Identifiable, Equatable, Codable {
+    enum Role: String, Codable { case user, assistant }
+    var id = UUID()
     let role: Role
     var text: String
+    var date = Date()
 }
 
 /// A "brain" turns what you said into a reply, streamed as text deltas so BOT can start speaking

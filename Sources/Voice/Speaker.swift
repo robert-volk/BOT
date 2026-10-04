@@ -80,11 +80,11 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     // MARK: Speaking
 
     /// Queue one chunk (usually a sentence) to be spoken after whatever is already queued.
-    func enqueue(_ text: String) {
+    func enqueue(_ text: String, language: String? = nil) {
         let clean = SpeechText.clean(text)
         guard !clean.isEmpty else { return }
         let u = AVSpeechUtterance(string: clean)
-        u.voice = resolvedVoice()
+        u.voice = language.flatMap { Translator.voice(for: $0) } ?? resolvedVoice()
         u.rate = AVSpeechUtteranceMinimumSpeechRate + (AVSpeechUtteranceMaximumSpeechRate - AVSpeechUtteranceMinimumSpeechRate) * rate
         u.pitchMultiplier = pitch
         u.volume = 1.0

@@ -7,6 +7,7 @@ struct ContentView: View {
     @EnvironmentObject var facts: FactStore
     @EnvironmentObject var reminders: ReminderCenter
     @EnvironmentObject var calendar: CalendarCenter
+    @EnvironmentObject var lists: ListStore
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -14,6 +15,7 @@ struct ContentView: View {
     @State private var showMemory = false
     @State private var showTranscript = false
     @State private var showReminders = false
+    @State private var showLists = false
 
     private var prefs: Preferences { settings.prefs }
     private var theme: Theme { Theme(prefs: prefs, scheme: scheme) }
@@ -45,13 +47,27 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: engine.learnedToast)
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders)
+            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders).environmentObject(lists)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showMemory) {
             NavigationStack { MemoryView() }
                 .environmentObject(settings).environmentObject(facts)
                 .preferredColorScheme(prefs.appearance.scheme)
+        }
+        .sheet(isPresented: $showLists) {
+            ListsView().environmentObject(lists)
+                .preferredColorScheme(prefs.appearance.scheme)
+        }
+        .fullScreenCover(isPresented: Binding(get: { engine.cameraQuestion != nil },
+                                              set: { if !$0 { engine.cameraQuestion = nil } })) {
+            CameraCaptureView(question: engine.cameraQuestion ?? "",
+                              onCapture: { data in
+                                  let q = engine.cameraQuestion ?? "What is this?"
+                                  engine.cameraQuestion = nil
+                                  engine.describePhoto(data, question: q)
+                              },
+                              onCancel: { engine.cameraQuestion = nil })
         }
         .sheet(isPresented: $showReminders) {
             RemindersView().environmentObject(reminders)
@@ -103,7 +119,20 @@ struct ContentView: View {
                 .tracking(2)
                 .foregroundStyle(theme.text)
             Spacer()
-            iconButton("text.bubble") { showTranscript = true }
+            Menu {
+                Button { showTranscript = true } label: { Label("Conversation", systemImage: "text.bubble") }
+                Button { showLists = true } label: { Label("Lists & notes", systemImage: "checklist") }
+                Button { engine.requestCamera("Describe what you see, and tell me anything useful about it.") } label: {
+                    Label("Look with camera", systemImage: "camera.fill")
+                }
+                Button { engine.requestBriefing() } label: { Label("Daily briefing", systemImage: "sun.max.fill") }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                    .frame(width: 42, height: 42)
+                    .background(theme.surface, in: Circle())
+            }
             ZStack(alignment: .topTrailing) {
                 iconButton("bell.fill") { showReminders = true }
                 if !reminders.items.isEmpty {

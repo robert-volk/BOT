@@ -33,6 +33,7 @@ struct SettingsView: View {
                 searchSection
                 siriSection
                 calendarSection
+                briefingSection
                 alertTestSection
                 memorySection
                 resetSection
@@ -51,8 +52,12 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: settings.prefs.calendarLead) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
+            .onChange(of: settings.prefs.leaveAlerts) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
+            .onChange(of: settings.prefs.briefingEnabled) { _, _ in applyBriefing() }
+            .onChange(of: settings.prefs.briefingMinutes) { _, _ in applyBriefing() }
             .onChange(of: settings.prefs.speakInBackground) { _, on in
                 reminders.backgroundSpeech = on
+                applyBriefing()
                 Task { await calendar.sync(with: settings.prefs) }
             }
         }
@@ -266,6 +271,7 @@ struct SettingsView: View {
                     Text("30 minutes before").tag(30)
                 }
             }
+            Toggle("Leave-now alerts (drive time to meetings with an address)", isOn: $settings.prefs.leaveAlerts)
             Toggle("Let Claude see my schedule", isOn: $settings.prefs.calendarToClaude)
         } header: { Text("Calendar") } footer: {
             Text("BOT reads your calendar but never changes it. Alerts show a banner and speak the meeting aloud, and are scheduled for the next 3 days each time you open BOT, so open it every few days and after your schedule changes. You can ask “What’s on my calendar today?” or “When’s my next meeting?”. The on-device AI always sees your next two days; Claude only does if you turn on the last switch, because that sends event titles to Anthropic.")
@@ -293,6 +299,39 @@ struct SettingsView: View {
             }
         } header: { Text("Reminder sound") } footer: {
             Text("The test checks that BOT can record its voice, plays it, then sends a test alert in 10 seconds. If notification sounds stay silent (silent switch, Focus), turn on the switch above: BOT then stays alive in the background and speaks reminders and meeting alerts itself, which ignores the silent switch. It uses more battery while an alert is pending, and it stops working if you force-quit BOT.")
+        }
+    }
+
+    private var briefingTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(bySettingHour: settings.prefs.briefingMinutes / 60,
+                                      minute: settings.prefs.briefingMinutes % 60, second: 0, of: Date()) ?? Date()
+            },
+            set: { date in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+                settings.prefs.briefingMinutes = (c.hour ?? 7) * 60 + (c.minute ?? 0)
+            })
+    }
+
+    private func applyBriefing() {
+        reminders.scheduleBriefing(enabled: settings.prefs.briefingEnabled, minutes: settings.prefs.briefingMinutes)
+    }
+
+    private var briefingSection: some View {
+        Section {
+            Toggle("Daily briefing", isOn: $settings.prefs.briefingEnabled)
+            if settings.prefs.briefingEnabled {
+                DatePicker("Time", selection: briefingTime, displayedComponents: .hourAndMinute)
+            }
+            Button {
+                engine.requestBriefing()
+                dismiss()
+            } label: {
+                Label("Hear it now", systemImage: "sun.max.fill")
+            }
+        } header: { Text("Daily briefing") } footer: {
+            Text("At your chosen time, BOT shows a banner. Tap it (or say good morning any time) and BOT reads the weather, your meetings, your reminders, and the top three news headlines. Turn on Speak alerts even in silent mode, and BOT starts talking by itself at that time.")
         }
     }
 

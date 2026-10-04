@@ -26,6 +26,10 @@
 	<string>BOT reads your calendar to warn you before meetings and to answer questions about your schedule. It never changes your events.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>BOT reads your calendar to warn you before meetings and to answer questions about your schedule.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>BOT uses the camera only when you ask it to look at something, and only the photo you take is analyzed.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>BOT looks up the phone number of the person you ask it to call or text. Contacts are never uploaded.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>BOT uses your location only to tell you the weather where you are.</string>
 	<key>NSMicrophoneUsageDescription</key>

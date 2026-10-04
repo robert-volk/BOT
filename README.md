@@ -39,6 +39,17 @@ or **Samantha (Enhanced)**. BOT picks the best one automatically, or choose in B
 ## Reminders and timers
 Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or "set a timer for 10 minutes". BOT shows a banner notification and speaks the reminder: live if the app is open, otherwise the notification plays a recording of BOT's own voice (rendered on-device when the reminder is set). The bell icon lists and deletes them; you can also say "what are my reminders" or "clear my reminders". Works with every brain, even Basic mode.
 
+## More things BOT does
+- **Daily briefing**: say "good morning" or "brief me", or set a daily alarm in Customize. BOT reads the weather, your meetings, today's reminders and the top 3 NPR headlines.
+- **Leave-now alerts**: for meetings with an address, BOT estimates the drive (Apple Maps) and alerts you when it's time to go.
+- **Repeating reminders and snooze**: "remind me every weekday at 8 to take my pills", "snooze for 10 minutes".
+- **Lists and notes**: "add milk and eggs to my grocery list", "what's on my to-do list", "take a note: call the plumber", "what did I note about the plumber".
+- **Call, text, directions, nearby**: "call Mom", "text Sam I'm running late" (opens Messages pre-filled; you tap Send), "directions to the airport", "find a coffee shop near me". iOS asks you to confirm calls.
+- **Camera**: "what is this?" opens the camera; tap the shutter and Claude describes it (needs a Claude key).
+- **History**: chats are remembered for 30 days. "What did we talk about yesterday?"
+- **Translator**: "how do you say where is the bathroom in Spanish" (AI brain), spoken in a native voice.
+- **Conversions**: "convert 5 miles to kilometers", "how much is 100 dollars in euros" (live rates, free).
+
 ## Calendar
 Turn on **Customize → Calendar → Meeting alerts** (iOS asks for calendar access). BOT then schedules a banner plus a spoken heads-up ("Heads up. Team sync starts in 10 minutes.") for each meeting in the next 3 days, refreshed whenever you open the app or your calendar changes. Ask "What's on my calendar today?", "…tomorrow?", "…this week?" or "When's my next meeting?" by voice. Read-only: BOT never edits your calendar. The on-device AI sees your next two days; Claude only if you enable "Let Claude see my schedule".
 

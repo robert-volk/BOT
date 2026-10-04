@@ -87,6 +87,31 @@ struct ClaudeBrain: Brain {
         }
     }
 
+    /// Describes a photo you took with BOT's camera. Claude only (Apple's on-device model can't see images).
+    func vision(system: String, jpeg: Data, question: String, maxTokens: Int) async throws -> String {
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 45
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        let source: [String: Any] = ["type": "base64", "media_type": "image/jpeg", "data": jpeg.base64EncodedString()]
+        let imageBlock: [String: Any] = ["type": "image", "source": source]
+        let textBlock: [String: Any] = ["type": "text", "text": question]
+        let message: [String: Any] = ["role": "user", "content": [imageBlock, textBlock]]
+        let body: [String: Any] = ["model": Self.model, "max_tokens": maxTokens, "system": system, "messages": [message]]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw BrainError.http(http.statusCode, Self.errorMessage(from: String(data: data, encoding: .utf8) ?? ""))
+        }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = obj["content"] as? [[String: Any]] else { return "" }
+        return content.compactMap { $0["text"] as? String }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func complete(system: String, prompt: String, maxTokens: Int) async throws -> String {
         let req = try request(system: system, messages: [["role": "user", "content": prompt]],
                               maxTokens: maxTokens, stream: false)

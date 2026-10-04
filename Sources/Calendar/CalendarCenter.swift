@@ -1,5 +1,6 @@
 import Foundation
 import EventKit
+import CoreLocation
 import UserNotifications
 
 /// Reads your calendar (EventKit, only after you allow it) to:
@@ -102,7 +103,18 @@ final class CalendarCenter: ObservableObject {
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "h:mm a"
 
+        var here: CLLocation?
+        var triedHere = false
+        var leaveCount = 0
+
         for e in upcoming {
+            if prefs.leaveAlerts, leaveCount < 6, e.startDate.timeIntervalSince(now) < 24 * 3600 {
+                if !triedHere {
+                    triedHere = true
+                    here = await LocationService.shared.current()
+                }
+                if let here, await scheduleLeaveAlert(for: e, from: here, prefs: prefs, now: now, keep: &keep) { leaveCount += 1 }
+            }
             let fire = e.startDate.addingTimeInterval(-Double(lead) * 60)
             guard fire.timeIntervalSince(now) > 2 else { continue }
             let name = title(e)
@@ -137,6 +149,55 @@ final class CalendarCenter: ObservableObject {
             reminders.registerAlert(key: id, fire: fire, line: line)
         }
         cleanSounds(keeping: keep)
+    }
+
+    private static func isVirtual(_ location: String) -> Bool {
+        let l = location.lowercased()
+        return ["http", "zoom", "teams", "meet.google", "webex", "video", "online", "phone", "call"].contains { l.contains($0) }
+    }
+
+    /// "Time to leave for X, it's about N minutes away", based on Apple Maps drive time from where you are now.
+    private func scheduleLeaveAlert(for e: EKEvent, from here: CLLocation, prefs: Preferences, now: Date,
+                                    keep: inout Set<String>) async -> Bool {
+        let loc = place(e)
+        guard !loc.isEmpty, !Self.isVirtual(loc) else { return false }
+        let maps = LocationService.shared
+        var coordinate = e.structuredLocation?.geoLocation?.coordinate
+        if coordinate == nil { coordinate = await maps.geocode(loc) }
+        guard let destination = coordinate,
+              let minutes = await maps.driveMinutes(from: here, to: destination, departure: e.startDate.addingTimeInterval(-1800))
+        else { return false }
+
+        let fire = e.startDate.addingTimeInterval(-Double(minutes + 5) * 60)
+        guard fire.timeIntervalSince(now) > 2 else { return false }
+
+        let name = title(e)
+        let line = "Time to leave for \(name). It's about \(minutes) minutes away."
+        let soundFile = Self.soundPrefix + Self.hash(line) + ".caf"
+        var rendered: String?
+        if !prefs.speakInBackground {
+            rendered = await reminders.speechSound(named: soundFile, line: line, voiceID: prefs.voiceID,
+                                                   rate: Float(prefs.rate), pitch: Float(prefs.pitch))
+        }
+        if rendered != nil { keep.insert(soundFile) }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Time to leave"
+        content.subtitle = name
+        content.body = "About \(minutes) min drive · \(loc)"
+        if prefs.speakInBackground {
+            content.sound = nil
+        } else {
+            content.sound = rendered.map { UNNotificationSound(named: UNNotificationSoundName($0)) } ?? .default
+        }
+        content.threadIdentifier = "bot-calendar"
+        content.userInfo = ["spoken": line]
+
+        let id = Self.idPrefix + "leave-" + (e.eventIdentifier ?? name) + "-\(Int(e.startDate.timeIntervalSince1970))"
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fire.timeIntervalSince(now), repeats: false)
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+        reminders.registerAlert(key: id, fire: fire, line: line)
+        return true
     }
 
     private func cleanSounds(keeping keep: Set<String>) {

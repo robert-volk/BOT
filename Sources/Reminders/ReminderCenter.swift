@@ -6,6 +6,7 @@ struct Reminder: Identifiable, Codable, Equatable {
     var id = UUID()
     var task: String
     var fire: Date
+    var repeatRule: String? = nil
 }
 
 enum ScheduleOutcome {
@@ -23,6 +24,12 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     @Published private(set) var items: [Reminder] = []
     /// Called with the spoken line when a reminder fires while the app is in the foreground.
     var onForegroundFire: ((String) -> Void)?
+    /// Called when the daily briefing alarm goes off (or its banner is tapped).
+    var onBriefing: (() -> Void)?
+    /// The task of the reminder that most recently went off, so "snooze" knows what to repeat.
+    private(set) var lastFiredTask: String?
+    private var briefingMinutes: Int?
+    private var lastBriefingTrigger = Date.distantPast
 
     private let fileURL: URL
     private var writers: [String: SoundWriter] = [:]
@@ -70,7 +77,7 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         for (key, alert) in alerts {
             let delay = max(0.1, alert.fire.timeIntervalSinceNow)
             timers[key] = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                Task { @MainActor in self?.fired(id: key, spoken: alert.line, speak: true, key: key) }
+                Task { @MainActor in self?.timerFired(key: key, line: alert.line) }
             }
         }
         if alerts.values.contains(where: { $0.fire.timeIntervalSinceNow < 24 * 3600 }) {
@@ -80,6 +87,57 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         }
     }
 
+    private func timerFired(key: String, line: String) {
+        if key == "briefing-daily" {
+            alerts[key] = nil
+            timers[key] = nil
+            triggerBriefing()
+            registerNextBriefing()
+            return
+        }
+        fired(id: key, spoken: line, speak: true, key: key)
+    }
+
+    // MARK: Daily briefing alarm
+
+    func scheduleBriefing(enabled: Bool, minutes: Int) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["briefing-daily"])
+        alerts["briefing-daily"] = nil
+        briefingMinutes = enabled ? minutes : nil
+        guard enabled else { refreshAlerts(); return }
+        Task {
+            guard await ensureAuthorized() else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Good morning"
+            content.body = "Tap for your daily briefing."
+            content.sound = backgroundSpeech ? nil : .default
+            content.userInfo = ["briefing": true]
+            var dc = DateComponents()
+            dc.hour = minutes / 60
+            dc.minute = minutes % 60
+            let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
+            try? await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "briefing-daily", content: content, trigger: trigger))
+            registerNextBriefing()
+        }
+    }
+
+    private func registerNextBriefing() {
+        guard let m = briefingMinutes else { return }
+        var dc = DateComponents()
+        dc.hour = m / 60
+        dc.minute = m % 60
+        if let next = Calendar.current.nextDate(after: Date().addingTimeInterval(61), matching: dc, matchingPolicy: .nextTime) {
+            registerAlert(key: "briefing-daily", fire: next, line: "")
+        }
+    }
+
+    private func triggerBriefing() {
+        guard Date().timeIntervalSince(lastBriefingTrigger) > 120 else { return }
+        lastBriefingTrigger = Date()
+        onBriefing?()
+    }
+
     private func deliver(key: String, line: String) {
         guard announced.insert(key).inserted else { return }   // the timer and the notification both try; speak once
         onForegroundFire?(line)
@@ -87,10 +145,10 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
 
     // MARK: Scheduling
 
-    func schedule(task: String, fire: Date, voiceID: String?, rate: Float, pitch: Float) async -> ScheduleOutcome {
+    func schedule(task: String, fire: Date, voiceID: String?, rate: Float, pitch: Float, repeatRule: String? = nil) async -> ScheduleOutcome {
         guard await ensureAuthorized() else { return .needsPermission }
 
-        let reminder = Reminder(task: task, fire: fire)
+        let reminder = Reminder(task: task, fire: fire, repeatRule: repeatRule)
         let line = ReminderParser.spokenLine(for: task)
         let soundName: String? = backgroundSpeech ? nil
             : await makeSpeechSound(id: reminder.id, line: String(line.prefix(140)), voiceID: voiceID, rate: rate, pitch: pitch)
@@ -105,9 +163,10 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         }
         content.userInfo = ["id": reminder.id.uuidString, "spoken": line]
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, fire.timeIntervalSinceNow), repeats: false)
-        let request = UNNotificationRequest(identifier: reminder.id.uuidString, content: content, trigger: trigger)
-        try? await UNUserNotificationCenter.current().add(request)
+        for (identifier, trigger) in triggers(for: reminder) {
+            try? await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+        }
 
         items.append(reminder)
         items.sort { $0.fire < $1.fire }
@@ -117,8 +176,42 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         return .scheduled(spokenBanner: soundName != nil || backgroundSpeech)
     }
 
+    private func triggers(for r: Reminder) -> [(String, UNNotificationTrigger)] {
+        guard let rule = r.repeatRule, let kind = ReminderParser.RepeatKind(rule) else {
+            return [(r.id.uuidString, UNTimeIntervalNotificationTrigger(timeInterval: max(1, r.fire.timeIntervalSinceNow), repeats: false))]
+        }
+        let hm = Calendar.current.dateComponents([.hour, .minute], from: r.fire)
+        var base = DateComponents()
+        base.hour = hm.hour
+        base.minute = hm.minute
+        let id = r.id.uuidString
+        switch kind {
+        case .daily:
+            return [(id, UNCalendarNotificationTrigger(dateMatching: base, repeats: true))]
+        case .weekdays:
+            return (2...6).map { d -> (String, UNNotificationTrigger) in
+                var c = base
+                c.weekday = d
+                return ("\(id)#\(d)", UNCalendarNotificationTrigger(dateMatching: c, repeats: true))
+            }
+        case .weekly(let d):
+            var c = base
+            c.weekday = d
+            return [(id, UNCalendarNotificationTrigger(dateMatching: c, repeats: true))]
+        case .monthly(let day):
+            var c = base
+            c.day = day
+            return [(id, UNCalendarNotificationTrigger(dateMatching: c, repeats: true))]
+        }
+    }
+
+    private func notificationIDs(for r: Reminder) -> [String] {
+        let id = r.id.uuidString
+        return r.repeatRule == "weekdays" ? (2...6).map { "\(id)#\($0)" } : [id]
+    }
+
     func remove(_ r: Reminder) {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [r.id.uuidString])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: notificationIDs(for: r))
         deleteSound(r.id)
         items.removeAll { $0.id == r.id }
         save()
@@ -127,18 +220,21 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     func cancelAll() {
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: items.flatMap { notificationIDs(for: $0) })
         items.forEach { deleteSound($0.id) }
         items.removeAll()
         save()
-        alerts = alerts.filter { UUID(uuidString: $0.key) == nil }   // keep calendar alerts
+        alerts = alerts.filter { UUID(uuidString: $0.key) == nil }   // keep calendar + briefing alerts
         refreshAlerts()
     }
 
     func spokenList() -> String {
         prune()
         guard !items.isEmpty else { return "You don't have any reminders set." }
-        let parts = items.prefix(4).map { "\(ReminderParser.secondPerson($0.task)), \(ReminderParser.whenPhrase($0.fire))" }
+        let parts = items.prefix(4).map { r -> String in
+            let when = r.repeatRule.map { ReminderParser.repeatPhrase($0, at: r.fire) } ?? ReminderParser.whenPhrase(r.fire)
+            return "\(ReminderParser.secondPerson(r.task)), \(when)"
+        }
         let count = items.count == 1 ? "You have one reminder." : "You have \(items.count) reminders."
         return count + " " + parts.joined(separator: ". ") + "."
     }
@@ -258,15 +354,27 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     // MARK: Delivery
 
     private func fired(id: String?, spoken: String?, speak: Bool, key: String? = nil) {
-        if let id, let uuid = UUID(uuidString: id) {
-            deleteSound(uuid)
-            items.removeAll { $0.id == uuid }
-            save()
-        }
         if let key {
             alerts[key] = nil
             timers[key]?.invalidate()
             timers[key] = nil
+        }
+        if let id, let uuid = UUID(uuidString: id), let idx = items.firstIndex(where: { $0.id == uuid }) {
+            lastFiredTask = items[idx].task
+            if let rule = items[idx].repeatRule, let kind = ReminderParser.RepeatKind(rule) {
+                // Repeating: keep it, and move it to the next occurrence.
+                let hm = Calendar.current.dateComponents([.hour, .minute], from: items[idx].fire)
+                if let next = ReminderParser.nextOccurrence(kind, hour: hm.hour ?? 8, minute: hm.minute ?? 0,
+                                                            after: Date().addingTimeInterval(61)) {
+                    items[idx].fire = next
+                    alerts[uuid.uuidString] = Alert(fire: next, line: ReminderParser.spokenLine(for: items[idx].task))
+                    save()
+                }
+            } else {
+                deleteSound(uuid)
+                items.remove(at: idx)
+                save()
+            }
         }
         if speak, let spoken { deliver(key: key ?? id ?? spoken, line: spoken) }
         refreshAlerts()
@@ -275,6 +383,11 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let info = notification.request.content.userInfo
+        if info["briefing"] != nil {
+            Task { @MainActor in self.triggerBriefing() }
+            completionHandler([.banner, .list])
+            return
+        }
         let id = info["id"] as? String
         let spoken = info["spoken"] as? String
         let key = notification.request.identifier
@@ -284,7 +397,13 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let id = response.notification.request.content.userInfo["id"] as? String
+        let info = response.notification.request.content.userInfo
+        if info["briefing"] != nil {
+            Task { @MainActor in self.triggerBriefing() }
+            completionHandler()
+            return
+        }
+        let id = info["id"] as? String
         Task { @MainActor in self.fired(id: id, spoken: nil, speak: false) }
         completionHandler()
     }
@@ -292,12 +411,19 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     // MARK: Persistence
 
     private func prune() {
-        let stale = items.filter { $0.fire < Date().addingTimeInterval(-60) }
-        stale.forEach { deleteSound($0.id) }
-        if !stale.isEmpty {
-            items.removeAll { r in stale.contains { $0.id == r.id } }
-            save()
+        let now = Date()
+        for i in items.indices where items[i].repeatRule != nil && items[i].fire < now.addingTimeInterval(-60) {
+            if let rule = items[i].repeatRule, let kind = ReminderParser.RepeatKind(rule) {
+                let hm = Calendar.current.dateComponents([.hour, .minute], from: items[i].fire)
+                if let next = ReminderParser.nextOccurrence(kind, hour: hm.hour ?? 8, minute: hm.minute ?? 0, after: now) {
+                    items[i].fire = next
+                }
+            }
         }
+        let stale = items.filter { $0.repeatRule == nil && $0.fire < now.addingTimeInterval(-60) }
+        stale.forEach { deleteSound($0.id) }
+        if !stale.isEmpty { items.removeAll { r in stale.contains { $0.id == r.id } } }
+        save()
     }
 
     private func load() {

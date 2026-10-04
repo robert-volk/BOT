@@ -6,6 +6,110 @@ enum ReminderParser {
     struct Parsed {
         var task: String?
         var date: Date?
+        var repeatRule: String?
+    }
+
+    /// How a reminder repeats. Stored on a reminder as "daily", "weekdays", "weekly:N" (1 = Sunday) or "monthly:D".
+    enum RepeatKind {
+        case daily, weekdays, weekly(Int), monthly(Int)
+
+        init?(_ rule: String) {
+            if rule == "daily" { self = .daily }
+            else if rule == "weekdays" { self = .weekdays }
+            else if rule.hasPrefix("weekly:"), let d = Int(rule.dropFirst(7)), (1...7).contains(d) { self = .weekly(d) }
+            else if rule.hasPrefix("monthly:"), let d = Int(rule.dropFirst(8)), (1...31).contains(d) { self = .monthly(d) }
+            else { return nil }
+        }
+    }
+
+    /// The next time a repeating reminder fires after `after`.
+    static func nextOccurrence(_ kind: RepeatKind, hour: Int, minute: Int, after: Date) -> Date? {
+        let cal = Calendar.current
+        var c = DateComponents()
+        c.hour = hour
+        c.minute = minute
+        switch kind {
+        case .daily:
+            return cal.nextDate(after: after, matching: c, matchingPolicy: .nextTime)
+        case .weekdays:
+            return (2...6).compactMap { d -> Date? in
+                var w = c
+                w.weekday = d
+                return cal.nextDate(after: after, matching: w, matchingPolicy: .nextTime)
+            }.min()
+        case .weekly(let d):
+            c.weekday = d
+            return cal.nextDate(after: after, matching: c, matchingPolicy: .nextTime)
+        case .monthly(let day):
+            c.day = day
+            return cal.nextDate(after: after, matching: c, matchingPolicy: .nextTime)
+        }
+    }
+
+    private static let weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+
+    /// Finds and removes a repeat phrase ("every weekday", "daily", "every Monday"...). Returns the rule and a default hour.
+    private static func extractRepeat(_ text: inout String) -> (rule: String, defaultHour: Int?)? {
+        func take(_ pattern: String) -> String? {
+            guard let r = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { return nil }
+            let found = String(text[r])
+            text.removeSubrange(r)
+            return found.lowercased()
+        }
+        if take(#"\bevery\s+(?:week ?days?|work ?days?)\b|\b(?:on\s+)?week ?days\b"#) != nil { return ("weekdays", nil) }
+        let dayList = weekdayNames.joined(separator: "|")
+        if let f = take(#"\b(?:every|each|on)\s+(?:"# + dayList + #")s?\b"#) {
+            if let i = weekdayNames.firstIndex(where: { f.contains($0) }) { return ("weekly:\(i + 1)", nil) }
+        }
+        if let f = take(#"\b(?:every|each)\s+(?:day|morning|afternoon|evening|night)\b|\bdaily\b"#) {
+            if f.contains("morning") { return ("daily", 8) }
+            if f.contains("afternoon") { return ("daily", 15) }
+            if f.contains("evening") { return ("daily", 18) }
+            if f.contains("night") { return ("daily", 21) }
+            return ("daily", nil)
+        }
+        if take(#"\bevery\s+week\b|\bweekly\b"#) != nil { return ("weekly:0", nil) }
+        if take(#"\bevery\s+month\b|\bmonthly\b"#) != nil { return ("monthly:0", nil) }
+        return nil
+    }
+
+    /// Resolves placeholder rules ("weekly:0") from the chosen date and moves it to the next real occurrence.
+    static func finalizeRepeat(rule: String?, date: Date) -> (rule: String?, date: Date) {
+        guard var r = rule else { return (nil, date) }
+        let cal = Calendar.current
+        if r == "weekly:0" { r = "weekly:\(cal.component(.weekday, from: date))" }
+        if r == "monthly:0" { r = "monthly:\(cal.component(.day, from: date))" }
+        guard let kind = RepeatKind(r) else { return (nil, date) }
+        let next = nextOccurrence(kind, hour: cal.component(.hour, from: date), minute: cal.component(.minute, from: date), after: Date())
+        return (r, next ?? date)
+    }
+
+    // MARK: Snooze
+
+    static func isSnooze(_ t: String) -> Bool {
+        matches(#"\b(snooze|remind me again|ask me again|try again in)\b"#, t)
+    }
+
+    static func snoozeMinutes(_ t: String) -> Int {
+        let pattern = #"(\d+|an?|one|two|three|four|five|ten|fifteen|twenty|thirty|forty[- ]?five|sixty)\s*(minutes?|mins?|hours?|hrs?)"#
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+              let a = Range(m.range(at: 1), in: t), let u = Range(m.range(at: 2), in: t) else { return 10 }
+        let n = number(String(t[a]))
+        return max(1, Int(t[u].lowercased().hasPrefix("h") ? n * 60 : n))
+    }
+
+    static func repeatPhrase(_ rule: String, at date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        let t = f.string(from: date)
+        switch RepeatKind(rule) {
+        case .daily: return "every day at \(t)"
+        case .weekdays: return "every weekday at \(t)"
+        case .weekly(let d): return "every \(weekdayNames[d - 1].capitalized) at \(t)"
+        case .monthly(let day): return "every month on day \(day) at \(t)"
+        case nil: return ""
+        }
     }
 
     static let timerTask = "timer"
@@ -36,6 +140,7 @@ enum ReminderParser {
         var text = input
         let isTimer = matches(#"\b(timer|alarm)\b"#, text)
         var date: Date?
+        let repeating = extractRepeat(&text)
 
         // 1. Relative: "in 20 minutes", "in an hour", "in half an hour", "timer for 10 minutes"
         let words = #"an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty[- ]?five|forty|sixty|ninety|\d+(?:\.\d+)?"#
@@ -62,6 +167,30 @@ enum ReminderParser {
             text.removeSubrange(whole)
         }
 
+        // 2b. Repeating: keep only the time of day and compute the next occurrence.
+        var repeatRule: String?
+        if let rep = repeating {
+            repeatRule = rep.rule
+            let cal = Calendar.current
+            var hour: Int?
+            var minute = 0
+            if let d = date {
+                hour = cal.component(.hour, from: d)
+                minute = cal.component(.minute, from: d)
+            } else if let h = rep.defaultHour {
+                hour = h
+            }
+            if let h = hour {
+                var rule = rep.rule
+                if rule == "weekly:0" { rule = "weekly:\(cal.component(.weekday, from: date ?? now))" }
+                if rule == "monthly:0" { rule = "monthly:\(cal.component(.day, from: date ?? now))" }
+                repeatRule = rule
+                if let kind = RepeatKind(rule) { date = nextOccurrence(kind, hour: h, minute: minute, after: now) }
+            } else {
+                date = nil
+            }
+        }
+
         // 3. Task text
         let prefix = #"^\s*(?:hey |ok |okay )?(?:can you |could you |would you |please |will you )*(?:remind (?:me|us)|set (?:a |an |another )?(?:reminder|timer|alarm)|wake me up|wake me)\s*(?:to |about |that |for |of |me to )?"#
         text = text.replacingOccurrences(of: prefix, with: "", options: [.regularExpression, .caseInsensitive])
@@ -72,7 +201,7 @@ enum ReminderParser {
 
         var task: String? = text.count >= 2 ? text : nil
         if task == nil && isTimer { task = timerTask }
-        return Parsed(task: task, date: date)
+        return Parsed(task: task, date: date, repeatRule: repeatRule)
     }
 
     private static func number(_ s: String) -> Double {
