@@ -150,3 +150,19 @@ enum Conversions {
         return s
     }
 }
+
+
+/// "Switch everything to metric" / "use Fahrenheit again": changes BOT's own units for weather, distances and answers.
+enum UnitPreference {
+    /// true = metric, false = US/imperial, nil = not a units request.
+    static func parse(_ text: String) -> Bool? {
+        let t = text.lowercased()
+        if t.contains(where: { $0.isNumber }) { return nil }   // "convert 5 miles to kilometers" is a conversion
+        func has(_ p: String) -> Bool { t.range(of: p, options: .regularExpression) != nil }
+        guard has(#"\b(?:switch|change|set|use|go|make)\b"#) else { return nil }
+        let metric = has(#"\b(?:metric|celsius|centigrade|kilometers?|kilometres?)\b"#)
+        let us = has(#"\b(?:imperial|fahrenheit|us units|u\.s\. units|american units|standard units|miles)\b"#)
+        if metric == us { return nil }
+        return metric
+    }
+}

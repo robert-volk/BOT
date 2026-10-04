@@ -205,6 +205,11 @@ struct SettingsView: View {
                 ForEach(ReplyLength.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+            Picker("Units", selection: $settings.prefs.metric) {
+                Text("US (miles, \u{00B0}F)").tag(false)
+                Text("Metric (km, \u{00B0}C)").tag(true)
+            }
+            .pickerStyle(.segmented)
             Picker("Personality", selection: $settings.prefs.personality) {
                 ForEach(Personality.allCases) { Text($0.title).tag($0) }
             }

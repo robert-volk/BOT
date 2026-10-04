@@ -41,7 +41,7 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
 
     // MARK: Lookup
 
-    func report(for utterance: String) async -> LookupResult {
+    func report(for utterance: String, metric: Bool = false) async -> LookupResult {
         var lat = 0.0, lon = 0.0, label = "your area"
 
         if let place = Self.placeName(in: utterance) {
@@ -58,21 +58,21 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
 
         let wantsTomorrow = utterance.lowercased().contains("tomorrow")
         do {
-            return try await fetchForecast(lat: lat, lon: lon, label: label, tomorrow: wantsTomorrow)
+            return try await fetchForecast(lat: lat, lon: lon, label: label, tomorrow: wantsTomorrow, metric: metric)
         } catch {
             return .failed("I couldn't reach the weather service right now. Check your connection and try again.")
         }
     }
 
-    private func fetchForecast(lat: Double, lon: Double, label: String, tomorrow: Bool) async throws -> LookupResult {
+    private func fetchForecast(lat: Double, lon: Double, label: String, tomorrow: Bool, metric: Bool) async throws -> LookupResult {
         var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         c.queryItems = [
             .init(name: "latitude", value: String(lat)),
             .init(name: "longitude", value: String(lon)),
             .init(name: "current", value: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m"),
             .init(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"),
-            .init(name: "temperature_unit", value: "fahrenheit"),
-            .init(name: "wind_speed_unit", value: "mph"),
+            .init(name: "temperature_unit", value: metric ? "celsius" : "fahrenheit"),
+            .init(name: "wind_speed_unit", value: metric ? "kmh" : "mph"),
             .init(name: "timezone", value: "auto"),
             .init(name: "forecast_days", value: "2"),
         ]
@@ -99,8 +99,10 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
             return "\(cond), high \(Int(highs[i].rounded())), low \(Int(lows[i].rounded())), \(r) percent chance of precipitation"
         }
 
-        let windText = wind < 6 ? "calm" : (wind < 15 ? "a light breeze" : (wind < 25 ? "a breezy \(Int(wind)) mph wind" : "strong wind around \(Int(wind)) mph"))
-        let facts = "Live weather for \(label) (Fahrenheit): right now \(Int(temp.rounded())) degrees, feels like \(Int(feels.rounded())), \(Self.describe(code)), \(windText). Today: \(day(0)). Tomorrow: \(day(1))."
+        let windUnit = metric ? "km/h" : "mph"
+        let calmLimit = metric ? 10.0 : 6.0, lightLimit = metric ? 24.0 : 15.0, breezyLimit = metric ? 40.0 : 25.0
+        let windText = wind < calmLimit ? "calm" : (wind < lightLimit ? "a light breeze" : (wind < breezyLimit ? "a breezy \(Int(wind)) \(windUnit) wind" : "strong wind around \(Int(wind)) \(windUnit)"))
+        let facts = "Live weather for \(label) (\(metric ? "Celsius, km/h" : "Fahrenheit, mph")): right now \(Int(temp.rounded())) degrees, feels like \(Int(feels.rounded())), \(Self.describe(code)), \(windText). Today: \(day(0)). Tomorrow: \(day(1))."
 
         var spoken = "Right now in \(label) it's \(Int(temp.rounded())) degrees and \(Self.describe(code))"
         spoken += abs(feels - temp) >= 4 ? ", feeling like \(Int(feels.rounded()))" : ""

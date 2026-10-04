@@ -93,6 +93,9 @@ enum PromptBuilder {
         You can look things up: when live weather or web search results appear below, answer from them and don't claim you can't browse. Otherwise answer from your own knowledge and say when you're unsure about recent events. \
         Current date and time: \(df.string(from: Date())).
         """
+        s += prefs.metric
+            ? " Always use metric units when you mention measurements: kilometers, meters, kilograms, liters and degrees Celsius, never miles, pounds or Fahrenheit, unless they ask otherwise."
+            : " Use US units (miles, pounds, Fahrenheit) unless they ask otherwise."
         if let name = userName { s += " The person's name is \(name); use it now and then, not every reply." }
         if !facts.isEmpty { s += "\n\nWhat you know about them:\n\(facts)" }
         if !calendar.isEmpty { s += "\n\nTheir calendar (next two days):\n\(calendar)" }

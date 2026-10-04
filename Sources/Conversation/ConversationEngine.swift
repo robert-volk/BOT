@@ -274,6 +274,7 @@ final class ConversationEngine: ObservableObject {
         replyID = id
         let system = currentSystem()
         let maxTokens = prefs.replyLength.maxTokens
+        let metric = prefs.metric
         let brain = self.brain
 
         replyTask = Task { [weak self] in
@@ -285,7 +286,7 @@ final class ConversationEngine: ObservableObject {
 
             // Live data the model can't know: look it up first, then let the brain phrase the answer.
             if WeatherService.isWeatherQuestion(text), let svc = self?.weather {
-                let result = await svc.report(for: text)
+                let result = await svc.report(for: text, metric: metric)
                 guard let self, self.replyID == id, !Task.isCancelled else { return }
                 switch result {
                 case .ok(let spoken, let facts):
@@ -351,6 +352,14 @@ final class ConversationEngine: ObservableObject {
     // MARK: Features (local intents: handled instantly, any brain)
 
     private func handleFeatures(_ text: String) -> Bool {
+        if let metric = UnitPreference.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            settings.prefs.metric = metric
+            speakLocal(metric
+                ? "Okay, I'll use metric from now on: kilometers, kilograms and degrees Celsius."
+                : "Okay, I'll go back to US units: miles, pounds and degrees Fahrenheit.")
+            return true
+        }
         if BriefingService.isBriefingRequest(text) {
             turns.append(ChatTurn(role: .user, text: text))
             runBriefing()
@@ -412,12 +421,13 @@ final class ConversationEngine: ObservableObject {
     private func runBriefing() {
         phase = .thinking
         let name = facts.userName
+        let metric = prefs.metric
         let sources: [NewsSource] = (prefs.newsNPR ? [.npr] : []) + (prefs.newsCNN ? [.cnn] : [])
         Task { [weak self] in
             guard let self else { return }
             async let news = BriefingService.headlines(from: sources, count: sources.count > 1 ? 2 : 3)
             var parts = [BriefingService.greeting(name: name)]
-            if case .ok(let spoken, _) = await self.weather.report(for: "weather today") { parts.append(spoken) }
+            if case .ok(let spoken, _) = await self.weather.report(for: "weather today", metric: metric) { parts.append(spoken) }
             if self.calendar.authorized { parts.append(self.calendar.spokenAgenda(for: "today")) }
             let today = self.reminders.items.filter { Calendar.current.isDateInToday($0.fire) }
             if !today.isEmpty {
@@ -535,7 +545,11 @@ final class ConversationEngine: ObservableObject {
             return
         }
         lastPlace = first.name
-        func distance(_ p: NearbyPlace) -> String { p.miles < 0.1 ? "right nearby" : String(format: "%.1f miles away", p.miles) }
+        let metric = prefs.metric
+        func distance(_ p: NearbyPlace) -> String {
+            if p.miles < 0.1 { return "right nearby" }
+            return metric ? String(format: "%.1f kilometers away", p.miles * 1.609344) : String(format: "%.1f miles away", p.miles)
+        }
         var reply = "The closest is \(first.name), \(distance(first))."
         if places.count > 1 {
             reply += " Next are " + ListStore.joined(places.dropFirst().map { "\($0.name), \(distance($0))" }) + "."
