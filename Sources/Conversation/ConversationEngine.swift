@@ -422,10 +422,10 @@ final class ConversationEngine: ObservableObject {
         phase = .thinking
         let name = facts.userName
         let metric = prefs.metric
-        let sources: [NewsSource] = NewsSource.allCases.filter { ($0 == .npr && prefs.newsNPR) || ($0 == .cnn && prefs.newsCNN) || ($0 == .cbc && prefs.newsCBC) }
+        let sources: [NewsSource] = NewsSource.allCases.filter { prefs.isEnabled($0) }
         Task { [weak self] in
             guard let self else { return }
-            async let news = BriefingService.headlines(from: sources, count: sources.count > 1 ? 2 : 3)
+            async let news = BriefingService.headlines(from: sources, count: sources.count > 4 ? 1 : (sources.count > 1 ? 2 : 3))
             var parts = [BriefingService.greeting(name: name)]
             if case .ok(let spoken, _) = await self.weather.report(for: "weather today", metric: metric) { parts.append(spoken) }
             if self.calendar.authorized { parts.append(self.calendar.spokenAgenda(for: "today")) }

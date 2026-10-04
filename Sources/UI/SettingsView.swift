@@ -336,7 +336,10 @@ struct SettingsView: View {
             }
             Toggle("News from NPR", isOn: $settings.prefs.newsNPR)
             Toggle("News from CNN", isOn: $settings.prefs.newsCNN)
-            Toggle("News from CBC", isOn: $settings.prefs.newsCBC)
+            Toggle("CBC Canada", isOn: $settings.prefs.newsCBCCanada)
+            Toggle("CBC World", isOn: $settings.prefs.newsCBCWorld)
+            Toggle("CBC Business", isOn: $settings.prefs.newsCBCBusiness)
+            Toggle("CBC Technology", isOn: $settings.prefs.newsCBCTech)
             Button {
                 engine.requestBriefing()
                 dismiss()

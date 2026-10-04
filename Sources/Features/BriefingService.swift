@@ -2,17 +2,20 @@ import Foundation
 
 /// News providers for the daily briefing. All are free and need no key.
 ///  - NPR: its public RSS feed.
-///  - CBC: CBC's public top-stories RSS feed.
+///  - CBC: CBC's public section feeds (Canada, World, Business, Technology).
 ///  - CNN: CNN's own RSS feed stopped updating in 2023 and is http-only, so this uses Google News' CNN-only
 ///    feed (live, https), which carries the latest CNN headlines.
 enum NewsSource: String, CaseIterable {
-    case npr, cnn, cbc
+    case npr, cnn, cbcCanada, cbcWorld, cbcBusiness, cbcTech
 
     var name: String {
         switch self {
         case .npr: return "NPR"
         case .cnn: return "CNN"
-        case .cbc: return "CBC"
+        case .cbcCanada: return "CBC Canada"
+        case .cbcWorld: return "CBC World"
+        case .cbcBusiness: return "CBC Business"
+        case .cbcTech: return "CBC Technology"
         }
     }
 
@@ -20,7 +23,23 @@ enum NewsSource: String, CaseIterable {
         switch self {
         case .npr: return "https://feeds.npr.org/1001/rss.xml"
         case .cnn: return "https://news.google.com/rss/search?q=when:1d+source:CNN&hl=en-US&gl=US&ceid=US:en"
-        case .cbc: return "https://www.cbc.ca/webfeed/rss/rss-topstories"
+        case .cbcCanada: return "https://www.cbc.ca/webfeed/rss/rss-canada"
+        case .cbcWorld: return "https://www.cbc.ca/webfeed/rss/rss-world"
+        case .cbcBusiness: return "https://www.cbc.ca/webfeed/rss/rss-business"
+        case .cbcTech: return "https://www.cbc.ca/webfeed/rss/rss-technology"
+        }
+    }
+}
+
+extension Preferences {
+    func isEnabled(_ source: NewsSource) -> Bool {
+        switch source {
+        case .npr: return newsNPR
+        case .cnn: return newsCNN
+        case .cbcCanada: return newsCBCCanada
+        case .cbcWorld: return newsCBCWorld
+        case .cbcBusiness: return newsCBCBusiness
+        case .cbcTech: return newsCBCTech
         }
     }
 }
