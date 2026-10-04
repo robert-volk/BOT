@@ -422,7 +422,7 @@ final class ConversationEngine: ObservableObject {
         phase = .thinking
         let name = facts.userName
         let metric = prefs.metric
-        let sources: [NewsSource] = (prefs.newsNPR ? [.npr] : []) + (prefs.newsCNN ? [.cnn] : [])
+        let sources: [NewsSource] = NewsSource.allCases.filter { ($0 == .npr && prefs.newsNPR) || ($0 == .cnn && prefs.newsCNN) || ($0 == .cbc && prefs.newsCBC) }
         Task { [weak self] in
             guard let self else { return }
             async let news = BriefingService.headlines(from: sources, count: sources.count > 1 ? 2 : 3)

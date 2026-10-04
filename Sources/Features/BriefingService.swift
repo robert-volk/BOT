@@ -1,18 +1,26 @@
 import Foundation
 
-/// News providers for the daily briefing. Both are free and need no key.
+/// News providers for the daily briefing. All are free and need no key.
 ///  - NPR: its public RSS feed.
+///  - CBC: CBC's public top-stories RSS feed.
 ///  - CNN: CNN's own RSS feed stopped updating in 2023 and is http-only, so this uses Google News' CNN-only
 ///    feed (live, https), which carries the latest CNN headlines.
 enum NewsSource: String, CaseIterable {
-    case npr, cnn
+    case npr, cnn, cbc
 
-    var name: String { self == .npr ? "NPR" : "CNN" }
+    var name: String {
+        switch self {
+        case .npr: return "NPR"
+        case .cnn: return "CNN"
+        case .cbc: return "CBC"
+        }
+    }
 
     var url: String {
         switch self {
         case .npr: return "https://feeds.npr.org/1001/rss.xml"
         case .cnn: return "https://news.google.com/rss/search?q=when:1d+source:CNN&hl=en-US&gl=US&ceid=US:en"
+        case .cbc: return "https://www.cbc.ca/webfeed/rss/rss-topstories"
         }
     }
 }

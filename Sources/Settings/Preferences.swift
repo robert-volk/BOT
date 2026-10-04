@@ -182,6 +182,7 @@ struct Preferences: Codable, Equatable {
     var briefingMinutes: Int = 450
     var newsNPR: Bool = true
     var newsCNN: Bool = true
+    var newsCBC: Bool = true
     var speakInBackground: Bool = false
     var calendarLead: Int = 10
     var calendarToClaude: Bool = false
