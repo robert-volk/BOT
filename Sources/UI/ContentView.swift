@@ -231,15 +231,11 @@ struct ContentView: View {
     @ViewBuilder
     private var captions: some View {
         if prefs.showCaptions {
-            ScrollView(showsIndicators: false) {
-                Text(captionText)
-                    .font(theme.font(prefs.captionSize, .medium))
-                    .foregroundStyle(engine.phase == .thinking || engine.phase == .listening ? theme.subtext : theme.text)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-            }
-            .frame(minHeight: 70, maxHeight: 150)
+            CaptionView(text: captionText,
+                        font: theme.font(prefs.captionSize, .medium),
+                        color: engine.phase == .thinking || engine.phase == .listening ? theme.subtext : theme.text,
+                        following: engine.phase == .speaking,
+                        speaker: engine.speaker)
             .padding(.top, 8)
             .animation(.easeInOut(duration: 0.2), value: captionText)
         } else {

@@ -5,12 +5,16 @@ import AVFoundation
 @MainActor
 final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published private(set) var isSpeaking = false
+    /// Characters of the current reply spoken so far (updated word by word). Drives the scrolling captions.
+    @Published private(set) var spokenChars: Int = 0
     /// Fires once everything queued has been spoken AND `finishInput()` was called.
     var onIdle: (() -> Void)?
 
     private let synth = AVSpeechSynthesizer()
     private var pending = 0
     private var inputDone = true
+    private var queuedLengths: [Int] = []   // characters in each queued utterance, oldest first
+    private var finishedChars = 0
 
     var voiceID: String?
     var rate: Float = 0.52
@@ -83,6 +87,12 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     func enqueue(_ text: String, language: String? = nil) {
         let clean = SpeechText.clean(text)
         guard !clean.isEmpty else { return }
+        if inputDone {   // first chunk of a new reply
+            queuedLengths = []
+            finishedChars = 0
+            spokenChars = 0
+        }
+        queuedLengths.append(clean.count)
         let u = AVSpeechUtterance(string: clean)
         u.voice = language.flatMap { Translator.voice(for: $0) } ?? resolvedVoice()
         u.rate = AVSpeechUtteranceMinimumSpeechRate + (AVSpeechUtteranceMaximumSpeechRate - AVSpeechUtteranceMinimumSpeechRate) * rate
@@ -105,6 +115,8 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     func stop() {
         inputDone = true
         pending = 0
+        queuedLengths = []
+        finishedChars = 0
         synth.stopSpeaking(at: .immediate)
         isSpeaking = false
     }
@@ -123,8 +135,20 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.pending -= 1
+            if !self.queuedLengths.isEmpty { self.finishedChars += self.queuedLengths.removeFirst() }
+            self.updateSpoken(currentChars: 0)
             self.checkIdle()
         }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange,
+                                       utterance: AVSpeechUtterance) {
+        let spoken = characterRange.location + characterRange.length
+        Task { @MainActor in self.updateSpoken(currentChars: spoken) }
+    }
+
+    private func updateSpoken(currentChars: Int) {
+        spokenChars = finishedChars + currentChars
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
