@@ -324,6 +324,8 @@ struct SettingsView: View {
             if settings.prefs.briefingEnabled {
                 DatePicker("Time", selection: briefingTime, displayedComponents: .hourAndMinute)
             }
+            Toggle("News from NPR", isOn: $settings.prefs.newsNPR)
+            Toggle("News from CNN", isOn: $settings.prefs.newsCNN)
             Button {
                 engine.requestBriefing()
                 dismiss()
@@ -331,7 +333,7 @@ struct SettingsView: View {
                 Label("Hear it now", systemImage: "sun.max.fill")
             }
         } header: { Text("Daily briefing") } footer: {
-            Text("At your chosen time, BOT shows a banner. Tap it (or say good morning any time) and BOT reads the weather, your meetings, your reminders, and the top three news headlines. Turn on Speak alerts even in silent mode, and BOT starts talking by itself at that time.")
+            Text("At your chosen time, BOT shows a banner. Tap it (or say good morning any time) and BOT reads the weather, your meetings, your reminders, and the top headlines from the news sources you pick. Turn on Speak alerts even in silent mode, and BOT starts talking by itself at that time.")
         }
     }
 

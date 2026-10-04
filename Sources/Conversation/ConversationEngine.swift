@@ -404,9 +404,10 @@ final class ConversationEngine: ObservableObject {
     private func runBriefing() {
         phase = .thinking
         let name = facts.userName
+        let sources: [NewsSource] = (prefs.newsNPR ? [.npr] : []) + (prefs.newsCNN ? [.cnn] : [])
         Task { [weak self] in
             guard let self else { return }
-            async let news = BriefingService.headlines()
+            async let news = BriefingService.headlines(from: sources, count: sources.count > 1 ? 2 : 3)
             var parts = [BriefingService.greeting(name: name)]
             if case .ok(let spoken, _) = await self.weather.report(for: "weather today") { parts.append(spoken) }
             if self.calendar.authorized { parts.append(self.calendar.spokenAgenda(for: "today")) }
@@ -414,8 +415,9 @@ final class ConversationEngine: ObservableObject {
             if !today.isEmpty {
                 parts.append("Reminders today: " + ListStore.joined(today.map { ReminderParser.secondPerson($0.task) }) + ".")
             }
-            let headlines = await news
-            if !headlines.isEmpty { parts.append("In the news: " + headlines.joined(separator: ". ") + ".") }
+            for group in await news {
+                parts.append("From \(group.source): " + group.titles.joined(separator: ". ") + ".")
+            }
             self.speakLocal(parts.joined(separator: " "))
         }
     }

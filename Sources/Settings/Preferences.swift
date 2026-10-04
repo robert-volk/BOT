@@ -179,6 +179,8 @@ struct Preferences: Codable, Equatable {
     var leaveAlerts: Bool = false
     var briefingEnabled: Bool = false
     var briefingMinutes: Int = 450
+    var newsNPR: Bool = true
+    var newsCNN: Bool = true
     var speakInBackground: Bool = false
     var calendarLead: Int = 10
     var calendarToClaude: Bool = false
@@ -196,12 +198,24 @@ final class AppSettings: ObservableObject {
     }
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: Self.key),
-           let p = try? JSONDecoder().decode(Preferences.self, from: data) {
-            prefs = p
-        } else {
-            prefs = Preferences()
+        prefs = Self.loadPrefs()
+    }
+
+    /// Saved settings are merged over the defaults, so options added in a later version get their default
+    /// value instead of making the whole saved copy fail to load (which used to reset everything).
+    private static func loadPrefs() -> Preferences {
+        guard let stored = UserDefaults.standard.data(forKey: key),
+              let storedObject = try? JSONSerialization.jsonObject(with: stored) as? [String: Any],
+              let defaultData = try? JSONEncoder().encode(Preferences()),
+              var merged = try? JSONSerialization.jsonObject(with: defaultData) as? [String: Any] else {
+            return Preferences()
         }
+        for (k, v) in storedObject { merged[k] = v }
+        guard let data = try? JSONSerialization.data(withJSONObject: merged),
+              let decoded = try? JSONDecoder().decode(Preferences.self, from: data) else {
+            return Preferences()
+        }
+        return decoded
     }
 
     private func save() {
