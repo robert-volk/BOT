@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject var facts: FactStore
     @EnvironmentObject var calendar: CalendarCenter
     @EnvironmentObject var reminders: ReminderCenter
+    @EnvironmentObject var emailStore: EmailStore
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
 
@@ -34,6 +35,7 @@ struct SettingsView: View {
                 siriSection
                 calendarSection
                 briefingSection
+                emailSection
                 alertTestSection
                 memorySection
                 resetSection
@@ -334,6 +336,18 @@ struct SettingsView: View {
             }
         } header: { Text("Daily briefing") } footer: {
             Text("At your chosen time, BOT shows a banner. Tap it (or say good morning any time) and BOT reads the weather, your meetings, your reminders, and the top headlines from the news sources you pick. Turn on Speak alerts even in silent mode, and BOT starts talking by itself at that time.")
+        }
+    }
+
+    private var emailSection: some View {
+        Section {
+            NavigationLink {
+                EmailAccountsView()
+            } label: {
+                LabeledContent("Email accounts", value: emailStore.accounts.isEmpty ? "None" : "\(emailStore.accounts.count)")
+            }
+        } header: { Text("Email") } footer: {
+            Text("Let BOT read and send email from your iCloud, Yahoo, Gmail or work (IMAP) accounts by voice. Email stays on your phone and never goes to Claude.")
         }
     }
 

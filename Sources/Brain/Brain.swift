@@ -6,6 +6,8 @@ struct ChatTurn: Identifiable, Equatable, Codable {
     let role: Role
     var text: String
     var date = Date()
+    /// True for email conversations: kept out of anything sent to Claude.
+    var isPrivate: Bool? = nil
 }
 
 /// A "brain" turns what you said into a reply, streamed as text deltas so BOT can start speaking
@@ -44,6 +46,14 @@ enum BrainFactory {
         #else
         return "This build was made without Apple Intelligence support."
         #endif
+    }
+
+    /// Apple's on-device model if this iPhone has it, whichever brain you chose. Used for email, which never leaves the phone.
+    static func onDeviceBrain() -> Brain? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *), AppleBrain.unavailableReason() == nil { return AppleBrain() }
+        #endif
+        return nil
     }
 
     static func make(choice: BrainChoice, claudeKey: String?, webSearch: Bool) -> Brain {

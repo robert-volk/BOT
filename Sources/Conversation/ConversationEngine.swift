@@ -24,7 +24,8 @@ final class ConversationEngine: ObservableObject {
     let reminders: ReminderCenter
     let calendar: CalendarCenter
     let lists: ListStore
-    private let phoneActions = PhoneActions()
+    private let phoneActions: PhoneActions
+    private let emailAssistant: EmailAssistant
     private let historyURL: URL
     @Published var cameraQuestion: String?
     private var afterSpeech: (() -> Void)?
@@ -45,12 +46,15 @@ final class ConversationEngine: ObservableObject {
     static let claudeKeyAccount = "claude-api-key"
     static let braveKeyAccount = "brave-api-key"
 
-    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter, lists: ListStore) {
+    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter, lists: ListStore, email: EmailStore) {
         self.settings = settings
         self.facts = facts
         self.reminders = reminders
         self.calendar = calendar
         self.lists = lists
+        let phone = PhoneActions()
+        self.phoneActions = phone
+        self.emailAssistant = EmailAssistant(service: EmailService(store: email), phone: phone)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BOT", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
@@ -199,10 +203,10 @@ final class ConversationEngine: ObservableObject {
     }
 
     /// Say something without involving the brain (greetings, memory commands).
-    private func speakLocal(_ text: String) {
+    private func speakLocal(_ text: String, isPrivate: Bool = false) {
         applyVoice()
         liveReply = text
-        turns.append(ChatTurn(role: .assistant, text: text))
+        turns.append(ChatTurn(role: .assistant, text: text, isPrivate: isPrivate ? true : nil))
         phase = .speaking
         Haptics.soft(enabled: prefs.haptics)
         speaker.enqueue(text)
@@ -237,6 +241,10 @@ final class ConversationEngine: ObservableObject {
             speakLocal("Okay, talk to you later!")
             return
         }
+        if emailAssistant.wantsToHandle(text) {
+            handleEmail(text)
+            return
+        }
         if ReminderParser.isSnooze(text) {
             turns.append(ChatTurn(role: .user, text: text))
             snooze(text)
@@ -253,7 +261,7 @@ final class ConversationEngine: ObservableObject {
         }
         if handleFeatures(text) { return }
 
-        let history = turns
+        let history = (brain is ClaudeBrain) ? turns.filter { $0.isPrivate != true } : turns
         turns.append(ChatTurn(role: .user, text: text))
         if prefs.learnAboutMe {
             for e in FactExtractor.heuristic(text) where facts.add(e.text, category: e.category) { toast(e.text) }
@@ -557,7 +565,7 @@ final class ConversationEngine: ObservableObject {
     private func answerHistory(_ text: String) {
         let lower = text.lowercased()
         let cal = Calendar.current
-        let previous = Array(turns.dropLast())   // everything before this question
+        let previous = Array(turns.dropLast()).filter { !(brain is ClaudeBrain) || $0.isPrivate != true }   // before this question; no email for Claude
         let day: Date? = lower.contains("yesterday") ? cal.date(byAdding: .day, value: -1, to: Date())
             : (lower.contains("today") ? Date() : nil)
         let relevant = previous.filter { t in day.map { cal.isDate(t.date, inSameDayAs: $0) } ?? true }
@@ -623,6 +631,20 @@ final class ConversationEngine: ObservableObject {
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let out = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         return out.jpegData(compressionQuality: 0.7) ?? data
+    }
+
+    // MARK: Email
+
+    private func handleEmail(_ text: String) {
+        turns.append(ChatTurn(role: .user, text: text, isPrivate: true))
+        phase = .thinking
+        let name = facts.userName
+        let onDevice = BrainFactory.onDeviceBrain()
+        Task { [weak self] in
+            guard let self else { return }
+            let reply = await self.emailAssistant.respond(to: text, userName: name, onDevice: onDevice)
+            self.speakLocal(reply, isPrivate: true)
+        }
     }
 
     // MARK: Calendar

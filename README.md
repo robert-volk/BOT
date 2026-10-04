@@ -50,6 +50,9 @@ Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or
 - **Translator**: "how do you say where is the bathroom in Spanish" (AI brain), spoken in a native voice.
 - **Conversions**: "convert 5 miles to kilometers", "how much is 100 dollars in euros" (live rates, free).
 
+## Email (iCloud, Yahoo, Gmail, work IMAP)
+Customize → **Email accounts** → add an account with an app-specific password. Then: "do I have any new email?", "read my unread emails", "read emails from Dana", "reply that Thursday works", "email Sam that I'll be late". BOT reads each draft back and only sends after you say "send it". It connects straight to your mail provider (IMAP/SMTP) and uses `EXAMINE`/`BODY.PEEK`, so it never marks mail as read. **Privacy:** email text is never sent to Claude or any search service. Summaries and drafting use Apple's on-device AI when available, otherwise BOT reads the subject and first line; email turns are excluded from the history sent to Claude. Outlook/Microsoft 365 needs OAuth and isn't supported yet.
+
 ## Calendar
 Turn on **Customize → Calendar → Meeting alerts** (iOS asks for calendar access). BOT then schedules a banner plus a spoken heads-up ("Heads up. Team sync starts in 10 minutes.") for each meeting in the next 3 days, refreshed whenever you open the app or your calendar changes. Ask "What's on my calendar today?", "…tomorrow?", "…this week?" or "When's my next meeting?" by voice. Read-only: BOT never edits your calendar. The on-device AI sees your next two days; Claude only if you enable "Let Claude see my schedule".
 

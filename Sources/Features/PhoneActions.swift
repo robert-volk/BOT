@@ -100,6 +100,28 @@ final class PhoneActions {
         return ContactMatch(name: display, number: digits)
     }
 
+    /// (display name, email address) for a spoken contact name.
+    func findEmail(_ spokenName: String) -> (String, String)? {
+        let name = spokenName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"^(?:my |the )"#, with: "", options: [.regularExpression, .caseInsensitive])
+        guard !name.isEmpty else { return nil }
+        let keys: [CNKeyDescriptor] = [CNContactGivenNameKey as CNKeyDescriptor, CNContactFamilyNameKey as CNKeyDescriptor,
+                                       CNContactNicknameKey as CNKeyDescriptor, CNContactEmailAddressesKey as CNKeyDescriptor,
+                                       CNContactFormatter.descriptorForRequiredKeys(for: .fullName)]
+        var contacts = (try? store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: name), keysToFetch: keys)) ?? []
+        if contacts.isEmpty {
+            let all = CNContactFetchRequest(keysToFetch: keys)
+            var found: [CNContact] = []
+            try? store.enumerateContacts(with: all) { c, _ in
+                if c.nickname.caseInsensitiveCompare(name) == .orderedSame { found.append(c) }
+            }
+            contacts = found
+        }
+        guard let contact = contacts.first(where: { !$0.emailAddresses.isEmpty }) else { return nil }
+        let display = CNContactFormatter.string(from: contact, style: .fullName) ?? name
+        return (display, contact.emailAddresses[0].value as String)
+    }
+
     // MARK: Opening other apps (must be done while BOT is on screen)
 
     func openCall(_ number: String) {

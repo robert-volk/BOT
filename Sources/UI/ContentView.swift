@@ -8,6 +8,7 @@ struct ContentView: View {
     @EnvironmentObject var reminders: ReminderCenter
     @EnvironmentObject var calendar: CalendarCenter
     @EnvironmentObject var lists: ListStore
+    @EnvironmentObject var emailStore: EmailStore
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -47,7 +48,7 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: engine.learnedToast)
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders).environmentObject(lists)
+            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders).environmentObject(lists).environmentObject(emailStore)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showMemory) {
