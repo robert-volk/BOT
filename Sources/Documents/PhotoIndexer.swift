@@ -160,10 +160,17 @@ enum PhotoIntent {
     static func parse(_ raw: String) -> String? {
         let t = VisualIntent.stripPolite(raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?")))
         let pattern = #"^(?:please )?(?:find|show|pull up|look for|search|get|display|bring up|give)\b.{0,25}?\b(?:photos?|pictures?|pics?|screenshots?|images?)\b(?:\s+(?:of|with|about|from|for|showing|containing))?\s*(.*)$"#
-        if let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-           let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
-           let r = Range(m.range(at: 1), in: t) {
-            return String(t[r]).trimmingCharacters(in: .whitespaces)
+        let patterns = [
+            pattern,
+            #"^(?:do i have|have i got|is there|are there)\b.{0,15}?\b(?:photos?|pictures?|pics?|screenshots?)\b(?:\s+(?:of|with|about|from))?\s*(.*)$"#,
+            #"^what\b.{0,12}\b(?:photos?|pictures?|pics?|screenshots?)\b.{0,12}\b(?:do i have|have i)\b(?:\s+(?:of|with|about|from))?\s*(.*)$"#,
+        ]
+        for p in patterns {
+            if let re = try? NSRegularExpression(pattern: p, options: [.caseInsensitive]),
+               let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+               let r = Range(m.range(at: 1), in: t) {
+                return String(t[r]).trimmingCharacters(in: .whitespaces)
+            }
         }
         return nil
     }

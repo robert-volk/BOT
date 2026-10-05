@@ -33,6 +33,7 @@ enum VisualIntent {
     case map(String)
     case weatherChart(String)
     case diagram(String)
+    case myPhotos(String)
 
     private static func match(_ pattern: String, _ text: String) -> [String]? {
         guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
@@ -145,6 +146,7 @@ struct VisualTagFilter {
         case "map": return .map(arg)
         case "forecast", "chart": return .weatherChart(arg)
         case "draw", "diagram": return arg.isEmpty ? nil : .diagram(arg)
+        case "myphotos", "my photos", "photos library", "photolibrary": return .myPhotos(arg)
         default: return nil
         }
     }

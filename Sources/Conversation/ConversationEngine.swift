@@ -433,6 +433,7 @@ final class ConversationEngine: ObservableObject {
             let window = DateWindow.parse(text)
             let lower = " " + text.lowercased() + " "
             let personal = window != nil || lower.contains(" my ") || lower.contains("screenshot") || lower.contains("camera roll")
+                || lower.contains(" do i have") || lower.contains(" have i ") || lower.contains(" i took")
             handlePhotoSearch(topic, window: window, personalOnly: personal)
             return true
         }
@@ -856,6 +857,9 @@ final class ConversationEngine: ObservableObject {
                 }
                 self.visual = .forecast(place: label.capitalizedFirst, days: days, metric: metric)
                 if announce { self.speakLocal("Here's the seven day forecast for \(label).") }
+
+            case .myPhotos(let query):
+                self.handlePhotoSearch(query, window: DateWindow.parse(query), personalOnly: true)
 
             case .diagram(let subject):
                 guard !(brain is BasicBrain) else {
