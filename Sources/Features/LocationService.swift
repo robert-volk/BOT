@@ -104,6 +104,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         return max(1, Int((eta.expectedTravelTime / 60).rounded()))
     }
 
+    /// "Main Street" / "Union Station", for saving a parking spot.
+    func describe(_ location: CLLocation) async -> String {
+        guard let mark = try? await CLGeocoder().reverseGeocodeLocation(location).first else { return "where you are" }
+        if let street = mark.thoroughfare {
+            return [mark.subThoroughfare, street].compactMap { $0 }.joined(separator: " ")
+        }
+        return mark.name ?? mark.locality ?? "where you are"
+    }
+
     func geocode(_ address: String) async -> CLLocationCoordinate2D? {
         let marks = try? await CLGeocoder().geocodeAddressString(address)
         return marks?.first?.location?.coordinate

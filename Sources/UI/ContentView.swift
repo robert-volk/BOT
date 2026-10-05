@@ -37,6 +37,12 @@ struct ContentView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
 
+            VStack {
+                RecordingBanner(recorder: engine.recorder, theme: theme) { engine.finishRecording() }
+                Spacer()
+            }
+            .padding(.top, 108)
+
             if let learned = engine.learnedToast {
                 VStack {
                     learnedBadge(learned)
@@ -61,14 +67,10 @@ struct ContentView: View {
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .fullScreenCover(isPresented: Binding(get: { engine.cameraQuestion != nil },
-                                              set: { if !$0 { engine.cameraQuestion = nil } })) {
+                                              set: { if !$0 { engine.cameraQuestion = nil; engine.cameraReadsText = false } })) {
             CameraCaptureView(question: engine.cameraQuestion ?? "",
-                              onCapture: { data in
-                                  let q = engine.cameraQuestion ?? "What is this?"
-                                  engine.cameraQuestion = nil
-                                  engine.describePhoto(data, question: q)
-                              },
-                              onCancel: { engine.cameraQuestion = nil })
+                              onCapture: { data in engine.photoCaptured(data) },
+                              onCancel: { engine.cameraQuestion = nil; engine.cameraReadsText = false })
         }
         .sheet(isPresented: $showReminders) {
             RemindersView().environmentObject(reminders)
@@ -126,6 +128,11 @@ struct ContentView: View {
                 Button { engine.requestCamera("Describe what you see, and tell me anything useful about it.") } label: {
                     Label("Look with camera", systemImage: "camera.fill")
                 }
+                Button { engine.requestCamera("Point at the text and tap the shutter.", readText: true) } label: {
+                    Label("Read text aloud", systemImage: "text.viewfinder")
+                }
+                Button { engine.startRecording(.meeting) } label: { Label("Take meeting notes", systemImage: "waveform.badge.mic") }
+                Button { engine.startRecording(.journal) } label: { Label("Voice journal", systemImage: "book.closed.fill") }
                 Button { engine.requestBriefing() } label: { Label("Daily briefing", systemImage: "sun.max.fill") }
             } label: {
                 Image(systemName: "ellipsis")

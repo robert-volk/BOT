@@ -9,6 +9,10 @@ struct NoteItem: Identifiable, Codable, Equatable {
 struct ListsData: Codable {
     var lists: [String: [String]] = [:]
     var notes: [NoteItem] = []
+    // Optional so lists.json from earlier versions still loads.
+    var meetings: [MeetingNote]?
+    var journal: [JournalEntry]?
+    var parking: ParkingSpot?
 }
 
 /// What the user asked to do with lists / notes.
@@ -34,7 +38,7 @@ enum ListIntent {
     static func parse(_ raw: String) -> ListIntent? {
         let t = raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?"))
 
-        if let g = firstMatch(#"^(?:please )?(?:take|make|write|save|jot|add)(?: down)?\s+(?:a )?note(?: to self)?[:,]?\s*(.+)$"#, in: t)
+        if let g = firstMatch(#"^(?:please )?(?:take|make|write|save|jot|add)(?: down)?\s+(?:a )?note\b(?: to self)?[:,]?\s*(.+)$"#, in: t)
             ?? firstMatch(#"^note to self[:,]?\s*(.+)$"#, in: t) {
             return .note(g[0])
         }
@@ -146,6 +150,45 @@ final class ListStore: ObservableObject {
         let words = FactStore.words(topic)
         guard !words.isEmpty else { return [] }
         return data.notes.filter { !FactStore.words($0.text).isDisjoint(with: words) }
+    }
+
+    // MARK: Meetings, journal, parking
+
+    var meetings: [MeetingNote] { data.meetings ?? [] }
+    var journal: [JournalEntry] { data.journal ?? [] }
+
+    func addMeeting(_ m: MeetingNote) {
+        var list = data.meetings ?? []
+        list.append(m)
+        data.meetings = list
+        save()
+    }
+
+    func deleteMeeting(_ m: MeetingNote) {
+        data.meetings = (data.meetings ?? []).filter { $0.id != m.id }
+        save()
+    }
+
+    func addJournal(_ text: String, mood: String?) {
+        var list = data.journal ?? []
+        list.append(JournalEntry(text: text, mood: mood))
+        data.journal = list
+        save()
+    }
+
+    func deleteJournal(_ e: JournalEntry) {
+        data.journal = (data.journal ?? []).filter { $0.id != e.id }
+        save()
+    }
+
+    func setParking(_ spot: ParkingSpot) {
+        data.parking = spot
+        save()
+    }
+
+    func clearParking() {
+        data.parking = nil
+        save()
     }
 
     // MARK: Spoken answers

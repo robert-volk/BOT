@@ -56,6 +56,15 @@ Customize → **Email accounts** → add an account with an app-specific passwor
 ## Units
 Say "switch to metric" (or "use Fahrenheit") or pick **Units** in Customize → Conversation. Metric changes weather (°C, km/h), nearby-place distances (km) and tells the AI to answer in metric. Explicit conversions ("convert 5 miles to kilometers") always work either way.
 
+## Meetings, journal, parking, reading text
+- **Meeting prep**: the heads-up before a meeting now includes who's attending, where, your notes on the event, and anything BOT remembers about those people. Say "prep me for my next meeting" any time.
+- **Meeting notes**: "take notes on this meeting" listens (on-device speech recognition; audio is never saved), then says "stop meeting notes". BOT saves a summary and action items, and adds the action items to your to-do list. Ask "what were the action items?" later.
+- **Voice journal**: "start my journal" (say "end journal" to finish) or "journal: today I...". "Reflect on my week" reads you a reflection.
+- **Parking**: "remember where I parked" (optionally "I parked on level 3"), then "where did I park?" gives walking directions.
+- **Read text aloud**: "read this" opens the camera; BOT reads the text using Apple's on-device text recognition (no Claude, nothing uploaded).
+- **Privacy**: meeting notes, journal and scanned text are kept out of anything sent to Claude. Smart summaries use Apple's on-device AI when your iPhone has it; otherwise BOT saves the transcript with the opening lines and any sentences that sound like action items.
+- **Dollars**: "convert 100 dollars to euros" uses Canadian dollars by default; change it in Customize.
+
 ## Calendar
 Turn on **Customize → Calendar → Meeting alerts** (iOS asks for calendar access). BOT then schedules a banner plus a spoken heads-up ("Heads up. Team sync starts in 10 minutes.") for each meeting in the next 3 days, refreshed whenever you open the app or your calendar changes. Ask "What's on my calendar today?", "…tomorrow?", "…this week?" or "When's my next meeting?" by voice. Read-only: BOT never edits your calendar. The on-device AI sees your next two days; Claude only if you enable "Let Claude see my schedule".
 

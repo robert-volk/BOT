@@ -3,6 +3,9 @@ import Foundation
 /// Exact unit and currency conversions. Units are computed on-device; currency uses frankfurter.app
 /// (free, no key, European Central Bank rates).
 enum Conversions {
+    /// What a bare "dollars" means: set from Settings (Canadian by default).
+    static var bareDollar = "CAD"
+
     struct Request {
         var value: Double
         var from: String
@@ -94,7 +97,7 @@ enum Conversions {
     private static let currencyNames: [(String, String)] = [
         ("canadian dollar", "CAD"), ("australian dollar", "AUD"), ("new zealand dollar", "NZD"), ("mexican peso", "MXN"),
         ("british pound", "GBP"), ("pound sterling", "GBP"), ("swiss franc", "CHF"), ("us dollar", "USD"), ("american dollar", "USD"),
-        ("dollar", "USD"), ("buck", "USD"), ("euro", "EUR"), ("yen", "JPY"), ("peso", "MXN"), ("rupee", "INR"),
+        ("euro", "EUR"), ("yen", "JPY"), ("peso", "MXN"), ("rupee", "INR"),
         ("yuan", "CNY"), ("renminbi", "CNY"), ("franc", "CHF"), ("won", "KRW"), ("real", "BRL"), ("reais", "BRL"),
         ("krona", "SEK"), ("kronor", "SEK"), ("zloty", "PLN"), ("shekel", "ILS"), ("rand", "ZAR"), ("baht", "THB"),
     ]
@@ -110,13 +113,14 @@ enum Conversions {
         if n.count == 3, codeSpoken[n.uppercased()] != nil { return n.uppercased() }
         if n == "pound" || n == "pounds" { return unitTable[other] == nil || isCurrencyWord(other) ? "GBP" : nil }
         for (word, c) in currencyNames where n.hasPrefix(word) || n.contains(word) { return c }
+        if n.contains("dollar") || n.contains("buck") { return bareDollar }
         return nil
     }
 
     private static func isCurrencyWord(_ s: String) -> Bool {
         let n = s.lowercased()
         if n.count == 3, codeSpoken[n.uppercased()] != nil { return true }
-        return currencyNames.contains { n.contains($0.0) }
+        return n.contains("dollar") || n.contains("buck") || currencyNames.contains { n.contains($0.0) }
     }
 
     private static func currencyPair(_ r: Request) -> (String, String)? {

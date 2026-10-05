@@ -176,6 +176,8 @@ struct Preferences: Codable, Equatable {
     var learnAboutMe: Bool = true
     var webSearch: Bool = true
     var metric: Bool = false
+    var meetingPrep: Bool = true
+    var homeCurrency: String = "CAD"
     var calendarAlerts: Bool = false
     var leaveAlerts: Bool = false
     var briefingEnabled: Bool = false

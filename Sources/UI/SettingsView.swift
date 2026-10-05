@@ -58,6 +58,7 @@ struct SettingsView: View {
             }
             .onChange(of: settings.prefs.calendarLead) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
             .onChange(of: settings.prefs.leaveAlerts) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
+            .onChange(of: settings.prefs.meetingPrep) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
             .onChange(of: settings.prefs.briefingEnabled) { _, _ in applyBriefing() }
             .onChange(of: settings.prefs.briefingMinutes) { _, _ in applyBriefing() }
             .onChange(of: settings.prefs.speakInBackground) { _, on in
@@ -210,6 +211,11 @@ struct SettingsView: View {
                 Text("Metric (km, \u{00B0}C)").tag(true)
             }
             .pickerStyle(.segmented)
+            Picker("\u{201C}Dollars\u{201D} means", selection: $settings.prefs.homeCurrency) {
+                Text("Canadian dollars").tag("CAD")
+                Text("US dollars").tag("USD")
+            }
+            .pickerStyle(.segmented)
             Picker("Personality", selection: $settings.prefs.personality) {
                 ForEach(Personality.allCases) { Text($0.title).tag($0) }
             }
@@ -282,6 +288,7 @@ struct SettingsView: View {
                 }
             }
             Toggle("Leave-now alerts (drive time to meetings with an address)", isOn: $settings.prefs.leaveAlerts)
+            Toggle("Meeting prep (who is attending, location, notes)", isOn: $settings.prefs.meetingPrep)
             Toggle("Let Claude see my schedule", isOn: $settings.prefs.calendarToClaude)
         } header: { Text("Calendar") } footer: {
             Text("BOT reads your calendar but never changes it. Alerts show a banner and speak the meeting aloud, and are scheduled for the next 3 days each time you open BOT, so open it every few days and after your schedule changes. You can ask “What’s on my calendar today?” or “When’s my next meeting?”. The on-device AI always sees your next two days; Claude only does if you turn on the last switch, because that sends event titles to Anthropic.")

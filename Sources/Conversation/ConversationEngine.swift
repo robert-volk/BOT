@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import CoreLocation
 
 enum Phase: Equatable {
     case idle, listening, thinking, speaking
@@ -28,6 +29,8 @@ final class ConversationEngine: ObservableObject {
     private let emailAssistant: EmailAssistant
     private let historyURL: URL
     @Published var cameraQuestion: String?
+    @Published var cameraReadsText = false
+    let recorder = MeetingRecorder()
     private var afterSpeech: (() -> Void)?
     private var lastPlace: String?
     let listener = Listener()
@@ -64,6 +67,9 @@ final class ConversationEngine: ObservableObject {
         speaker.onIdle = { [weak self] in self?.speechDidFinish() }
         reminders.onForegroundFire = { [weak self] line in self?.announce(line) }
         reminders.onBriefing = { [weak self] in self?.startBriefing() }
+        calendar.factsProvider = { [weak facts] name in
+            facts?.facts.filter { $0.text.localizedCaseInsensitiveContains(name) }.map { $0.text } ?? []
+        }
         refreshBrain()
     }
 
@@ -105,6 +111,7 @@ final class ConversationEngine: ObservableObject {
 
     func primaryTap() {
         Haptics.tap(enabled: prefs.haptics)
+        if recorder.isRecording { finishRecording(); return }
         switch phase {
         case .idle:
             Task { await begin() }
@@ -352,6 +359,12 @@ final class ConversationEngine: ObservableObject {
     // MARK: Features (local intents: handled instantly, any brain)
 
     private func handleFeatures(_ text: String) -> Bool {
+        Conversions.bareDollar = prefs.homeCurrency
+        if let life = LifeIntent.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text, isPrivate: true))
+            handleLife(life)
+            return true
+        }
         if let metric = UnitPreference.parse(text) {
             turns.append(ChatTurn(role: .user, text: text))
             settings.prefs.metric = metric
@@ -397,6 +410,7 @@ final class ConversationEngine: ObservableObject {
         if Self.isCameraRequest(text) {
             turns.append(ChatTurn(role: .user, text: text))
             active = false
+            cameraReadsText = false
             cameraQuestion = text
             speakLocal("Okay. Point the camera and tap the shutter.")
             return true
@@ -610,13 +624,33 @@ final class ConversationEngine: ObservableObject {
     // MARK: Camera
 
     private static func isCameraRequest(_ t: String) -> Bool {
-        t.range(of: #"\b(?:what is this|what'?s this|what am i looking at|look at this|what does this say|read this|identify this|scan this|use the camera|take a (?:picture|photo)|is this safe)\b"#,
+        t.range(of: #"\b(?:what is this|what'?s this|what am i looking at|look at this|identify this|use the camera|take a (?:picture|photo)|is this safe)\b"#,
                 options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    func requestCamera(_ question: String) {
+    func requestCamera(_ question: String, readText: Bool = false) {
         end()
+        cameraReadsText = readText
         cameraQuestion = question
+    }
+
+    /// The shutter was tapped: either read the text aloud (on-device) or describe the photo (Claude).
+    func photoCaptured(_ data: Data) {
+        let question = cameraQuestion ?? "What is this?"
+        let readsText = cameraReadsText
+        cameraQuestion = nil
+        cameraReadsText = false
+        if readsText { readText(from: data) } else { describePhoto(data, question: question) }
+    }
+
+    private func readText(from data: Data) {
+        phase = .thinking
+        Task { [weak self] in
+            let text = await TextReader.read(data)
+            guard let self else { return }
+            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.speakLocal(clean.isEmpty ? "I couldn't find any text in that photo." : String(clean.prefix(2500)), isPrivate: true)
+        }
     }
 
     func describePhoto(_ jpegData: Data, question: String) {
@@ -662,6 +696,172 @@ final class ConversationEngine: ObservableObject {
             }
             self.speakLocal(reply, isPrivate: true)
         }
+    }
+
+    // MARK: Meeting notes, journal, parking
+
+    private func handleLife(_ intent: LifeIntent) {
+        switch intent {
+        case .startMeeting:
+            startRecording(.meeting)
+        case .startJournal:
+            startRecording(.journal)
+        case .journalNow(let text):
+            lists.addJournal(text.capitalizedFirst, mood: nil)
+            speakLocal("Saved to your journal.", isPrivate: true)
+        case .reflectWeek:
+            reflectOnWeek()
+        case .lastMeeting:
+            guard let m = lists.meetings.last else {
+                speakLocal("I don't have any meeting notes yet.", isPrivate: true)
+                return
+            }
+            let day = DateFormatter()
+            day.dateFormat = "EEEE"
+            var reply = "Your last meeting, on \(day.string(from: m.date)), ran \(m.minutes) minutes. \(m.summary)"
+            if !m.actions.isEmpty { reply += " Action items: " + ListStore.joined(m.actions) + "." }
+            speakLocal(reply, isPrivate: true)
+        case .parkHere(let note):
+            saveParking(note: note)
+        case .whereParked:
+            findParking()
+        case .readText:
+            active = false
+            cameraReadsText = true
+            cameraQuestion = "Point at the text and tap the shutter."
+            speakLocal("Okay. Point the camera at the text and tap the shutter.", isPrivate: true)
+        }
+    }
+
+    /// Starts listening to a meeting or journal entry. Everything stays on this phone.
+    func startRecording(_ kind: MeetingRecorder.Kind) {
+        Task { [weak self] in
+            guard let self else { return }
+            guard await Listener.requestPermissions() else {
+                self.permissionDenied = true
+                return
+            }
+            self.end()
+            let intro = kind == .meeting
+                ? "Okay, I'm taking meeting notes. Say stop meeting notes when you're done, or tap Stop."
+                : "I'm listening. Say end journal when you're done, or tap Stop."
+            self.afterSpeech = { [weak self] in
+                self?.recorder.start(kind: kind) { [weak self] in self?.finishRecording() }
+            }
+            self.speakLocal(intro, isPrivate: true)
+        }
+    }
+
+    func finishRecording() {
+        guard recorder.isRecording, let kind = recorder.kind else { return }
+        let result = recorder.stop()
+        phase = .thinking
+        let onDevice = BrainFactory.onDeviceBrain()
+        Task { [weak self] in
+            guard let self else { return }
+            guard !result.text.isEmpty else {
+                self.speakLocal("I didn't catch anything, so I didn't save it.", isPrivate: true)
+                return
+            }
+            switch kind {
+            case .meeting:
+                let summary = await MeetingSummarizer.summarize(result.text, brain: onDevice)
+                let minutes = max(1, (result.seconds + 30) / 60)
+                self.lists.addMeeting(MeetingNote(minutes: minutes, summary: summary.summary, actions: summary.actions, transcript: result.text))
+                if !summary.actions.isEmpty { self.lists.add(summary.actions, to: "to-do") }
+                var reply = "Saved your meeting notes, \(minutes) minute\(minutes == 1 ? "" : "s"). Summary: \(summary.summary)"
+                if !summary.actions.isEmpty {
+                    let n = summary.actions.count
+                    reply += " I found \(n) action item\(n == 1 ? "" : "s") and added \(n == 1 ? "it" : "them") to your to-do list: "
+                        + ListStore.joined(Array(summary.actions.prefix(3))) + "."
+                }
+                self.speakLocal(reply, isPrivate: true)
+            case .journal:
+                var mood: String?
+                if let brain = onDevice,
+                   let out = try? await brain.complete(system: "In two or three words, describe the writer's mood. No punctuation, no sentence.",
+                                                       prompt: String(result.text.prefix(1500)), maxTokens: 12) {
+                    let m = out.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".\""))).lowercased()
+                    if !m.isEmpty && m != "none" { mood = m }
+                }
+                self.lists.addJournal(result.text, mood: mood)
+                self.speakLocal("Saved your journal entry." + (mood.map { " You sound \($0)." } ?? ""), isPrivate: true)
+            }
+        }
+    }
+
+    private func reflectOnWeek() {
+        let cutoff = Date().addingTimeInterval(-7 * 86400)
+        let entries = lists.journal.filter { $0.date > cutoff }
+        guard let latest = entries.last else {
+            speakLocal("You haven't written any journal entries this week.", isPrivate: true)
+            return
+        }
+        guard let brain = BrainFactory.onDeviceBrain() else {
+            speakLocal("You wrote \(entries.count) journal entr\(entries.count == 1 ? "y" : "ies") this week. The latest begins: "
+                       + String(latest.text.prefix(120)), isPrivate: true)
+            return
+        }
+        phase = .thinking
+        let day = DateFormatter()
+        day.dateFormat = "EEEE"
+        var text = ""
+        for e in entries { text += "\(day.string(from: e.date)): \(String(e.text.prefix(500)))\n" }
+        let prompt = String(text.prefix(3000))
+        Task { [weak self] in
+            let system = "You are a kind, thoughtful friend. In three or four spoken sentences, reflect on the user's journal entries from the past week: themes, mood, and anything to look forward to. Speak to them as 'you'. No lists, no markdown."
+            let out = (try? await brain.complete(system: system, prompt: prompt, maxTokens: 220)) ?? ""
+            let answer = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            self?.speakLocal(answer.isEmpty ? "I couldn't put that together." : answer, isPrivate: true)
+        }
+    }
+
+    private func saveParking(note: String) {
+        phase = .thinking
+        Task { [weak self] in
+            guard let self else { return }
+            guard let here = await LocationService.shared.current() else {
+                self.speakLocal("I need location access to remember where you parked. Turn it on for BOT in iPhone Settings, under Privacy and Security.")
+                return
+            }
+            let place = await LocationService.shared.describe(here)
+            self.lists.setParking(ParkingSpot(latitude: here.coordinate.latitude, longitude: here.coordinate.longitude,
+                                              place: place, note: note, date: Date()))
+            self.speakLocal("Okay, I saved your parking spot near \(place)" + (note.isEmpty ? "." : ", \(note)."))
+        }
+    }
+
+    private func findParking() {
+        guard let spot = lists.data.parking else {
+            speakLocal("I don't have a parking spot saved. Say remember where I parked when you park.")
+            return
+        }
+        phase = .thinking
+        let metric = prefs.metric
+        Task { [weak self] in
+            guard let self else { return }
+            let ago = RelativeDateTimeFormatter().localizedString(for: spot.date, relativeTo: Date())
+            var reply = "You parked near \(spot.place)" + (spot.note.isEmpty ? "" : ", \(spot.note)") + ", \(ago)."
+            if let here = await LocationService.shared.current() {
+                let meters = here.distance(from: CLLocation(latitude: spot.latitude, longitude: spot.longitude))
+                reply += " It's about " + Self.distanceText(meters, metric: metric) + " away."
+            }
+            reply += " Opening walking directions."
+            self.afterSpeech = {
+                if let url = URL(string: "https://maps.apple.com/?daddr=\(spot.latitude),\(spot.longitude)&dirflg=w") {
+                    UIApplication.shared.open(url)
+                }
+            }
+            self.speakLocal(reply)
+        }
+    }
+
+    private static func distanceText(_ meters: Double, metric: Bool) -> String {
+        if metric {
+            return meters < 950 ? "\(Int((meters / 10).rounded()) * 10) meters" : String(format: "%.1f kilometers", meters / 1000)
+        }
+        let feet = meters * 3.28084
+        return feet < 1000 ? "\(Int((feet / 10).rounded()) * 10) feet" : String(format: "%.1f miles", meters / 1609.344)
     }
 
     // MARK: Claude key test

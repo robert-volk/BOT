@@ -12,6 +12,8 @@ import UserNotifications
 @MainActor
 final class CalendarCenter: ObservableObject {
     @Published private(set) var authorized = false
+    /// Set by the engine: facts BOT remembers that mention a person's first name.
+    var factsProvider: ((String) -> [String])?
 
     private let store = EKEventStore()
     private let reminders: ReminderCenter
@@ -118,9 +120,14 @@ final class CalendarCenter: ObservableObject {
             let fire = e.startDate.addingTimeInterval(-Double(lead) * 60)
             guard fire.timeIntervalSince(now) > 2 else { continue }
             let name = title(e)
-            let line = lead == 0
+            var line = lead == 0
                 ? "Your meeting, \(name), is starting now."
                 : "Heads up. \(name) starts in \(lead) minutes."
+            if prefs.meetingPrep {
+                let details = prepDetails(e)
+                if !details.isEmpty { line += " " + details }
+                line = String(line.prefix(320))
+            }
 
             let soundFile = Self.soundPrefix + Self.hash(line) + ".caf"
             var rendered: String?
@@ -217,6 +224,7 @@ final class CalendarCenter: ObservableObject {
     // MARK: Voice questions
 
     static func isAgendaQuestion(_ text: String) -> Bool {
+        if isPrepRequest(text) { return true }
         let l = text.lowercased()
         func has(_ p: String) -> Bool { l.range(of: p, options: .regularExpression) != nil }
         guard has(#"\b(calendar|schedule|agenda|meetings?|appointments?)\b"#) else { return false }
@@ -231,6 +239,8 @@ final class CalendarCenter: ObservableObject {
         let now = Date()
         let cal = Calendar.current
         let lower = text.lowercased()
+
+        if Self.isPrepRequest(text) { return spokenPrep() }
 
         if lower.contains("next") {
             guard let e = events(from: now, to: now.addingTimeInterval(7 * 86400)).first(where: { $0.startDate > now }) else {
@@ -289,6 +299,50 @@ final class CalendarCenter: ObservableObject {
             let loc = place(e)
             return "- \(title(e)), \(ReminderParser.whenPhrase(e.startDate))" + (loc.isEmpty ? "" : " (\(loc))")
         }.joined(separator: "\n")
+    }
+
+    // MARK: Meeting prep
+
+    static func isPrepRequest(_ text: String) -> Bool {
+        text.range(of: #"\b(?:prep|prepare|brief)\s+(?:me\s+)?(?:for|on)\s+(?:my |the )?(?:next |upcoming )?(?:meeting|call)\b|\bprep(?:are)? me\b"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Who's attending, where it is, your own notes on the event, and anything BOT remembers about the people.
+    func prepDetails(_ e: EKEvent) -> String {
+        var parts: [String] = []
+        let people = (e.attendees ?? [])
+            .filter { !$0.isCurrentUser }
+            .compactMap { $0.name }
+            .filter { !$0.contains("@") }
+            .map { $0.split(separator: " ").first.map(String.init) ?? $0 }
+        if !people.isEmpty {
+            let shown = Array(people.prefix(3))
+            let others = people.count - shown.count
+            parts.append("With " + ListStore.joined(shown) + (others > 0 ? " and \(others) other\(others == 1 ? "" : "s")" : "") + ".")
+        }
+        let loc = place(e)
+        if !loc.isEmpty, !Self.isVirtual(loc) { parts.append("At \(loc).") }
+        if let notes = e.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+            let first = notes.split(whereSeparator: { ".!?\n".contains($0) }).first.map(String.init) ?? notes
+            parts.append("Notes say: " + String(first.prefix(140)) + ".")
+        }
+        var remembered: [String] = []
+        for person in people.prefix(3) {
+            if let fact = factsProvider?(person).first { remembered.append(fact) }
+        }
+        if !remembered.isEmpty { parts.append("I remember: " + remembered.prefix(2).joined(separator: "; ") + ".") }
+        return parts.joined(separator: " ")
+    }
+
+    func spokenPrep() -> String {
+        guard authorized else { return "I can't see your calendar yet. Turn on Calendars for BOT in iPhone Settings, Privacy and Security." }
+        let now = Date()
+        guard let e = events(from: now, to: now.addingTimeInterval(24 * 3600)).first(where: { $0.startDate > now }) else {
+            return "You don't have any more meetings in the next day."
+        }
+        let details = prepDetails(e)
+        return "Your next meeting is \(title(e)) \(ReminderParser.whenPhrase(e.startDate)). " + (details.isEmpty ? "I don't have more details on it." : details)
     }
 
     // MARK: Helpers
