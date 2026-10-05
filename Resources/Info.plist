@@ -32,6 +32,8 @@
 	<string>BOT looks up the phone number of the person you ask it to call or text. Contacts are never uploaded.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>BOT uses your location only to tell you the weather where you are.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>BOT reads the photo albums you choose, on your phone, to find photos by the text in them and what they show. Photos are never uploaded.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BOT listens to your voice so you can talk to it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

@@ -64,6 +64,11 @@ struct ContentView: View {
                 .environmentObject(settings).environmentObject(facts)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
+        .sheet(isPresented: Binding(get: { !engine.previewPhotoIDs.isEmpty },
+                                    set: { if !$0 { engine.previewPhotoIDs = [] } })) {
+            PhotoPreviewView(assetIDs: engine.previewPhotoIDs)
+                .preferredColorScheme(prefs.appearance.scheme)
+        }
         .sheet(isPresented: $showDocuments) {
             NavigationStack { DocumentsView() }
                 .environmentObject(documents)
@@ -97,10 +102,10 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, new in
             if new != .active { engine.end() }
-            if new == .active { consumeSiriLaunch(); resyncCalendar() }
+            if new == .active { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .botWakeRequested)) { _ in consumeSiriLaunch() }
-        .onAppear { consumeSiriLaunch(); resyncCalendar() }
+        .onAppear { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll() }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in resyncCalendar() }
         .onChange(of: engine.active) { _, on in
             UIApplication.shared.isIdleTimerDisabled = on

@@ -68,6 +68,18 @@ enum DocumentIndexer {
         return Result(chunks: chunks, vectors: vectors, pages: pages == 0 ? segments.count : pages, error: nil)
     }
 
+    /// A unit-length meaning vector for a passage (zeros if Apple's embeddings aren't available).
+    static func embed(_ text: String, using embedder: NLEmbedding?) -> [Float] {
+        let dim = DocConstants.dim
+        guard let e = embedder, e.dimension == dim, let v = e.vector(for: String(text.prefix(1500))) else {
+            return [Float](repeating: 0, count: dim)
+        }
+        var f = v.map { Float($0) }
+        let norm = sqrt(f.reduce(0) { $0 + $1 * $1 })
+        if norm > 0 { f = f.map { $0 / norm } }
+        return f
+    }
+
     // MARK: PDF (with on-device text recognition for scanned pages)
 
     private static func pdfSegments(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async -> ([Segment], Int) {

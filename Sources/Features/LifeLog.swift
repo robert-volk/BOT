@@ -157,6 +157,20 @@ enum MeetingSummarizer {
 // MARK: - Read text aloud (Apple's on-device text recognition)
 
 enum TextReader {
+    /// Text in an image, top to bottom. Synchronous: call it from a background task.
+    static func recognize(_ cg: CGImage, orientation: CGImagePropertyOrientation) -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: orientation, options: [:])
+        try? handler.perform([request])
+        let lines = (request.results ?? []).sorted { a, b in
+            if abs(a.boundingBox.maxY - b.boundingBox.maxY) > 0.015 { return a.boundingBox.maxY > b.boundingBox.maxY }
+            return a.boundingBox.minX < b.boundingBox.minX
+        }
+        return lines.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+    }
+
     static func read(_ jpeg: Data) async -> String {
         guard let image = UIImage(data: jpeg), let cg = image.cgImage else { return "" }
         let orientation = CGImagePropertyOrientation(image.imageOrientation)

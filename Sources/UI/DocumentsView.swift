@@ -1,18 +1,22 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Your document library: add files or folders, see what's indexed, and test what a question finds.
+/// Your document library: synced folders and photo albums, individual files, and a search tester.
 struct DocumentsView: View {
+    enum ImportMode { case files, folder }
+
     @EnvironmentObject var documents: DocumentStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var importing = false
+    @State private var mode: ImportMode = .files
+    @State private var showAlbums = false
     @State private var query = ""
     @State private var results: [DocumentStore.Hit] = []
     @State private var searched = false
 
-    private static let types: [UTType] = {
-        var t: [UTType] = [.pdf, .plainText, .rtf, .image, .folder, .commaSeparatedText]
+    private static let fileTypes: [UTType] = {
+        var t: [UTType] = [.pdf, .plainText, .rtf, .image, .commaSeparatedText]
         for ext in ["docx", "xlsx", "md", "markdown"] {
             if let u = UTType(filenameExtension: ext) { t.append(u) }
         }
@@ -22,16 +26,40 @@ struct DocumentsView: View {
     var body: some View {
         List {
             Section {
-                Button { importing = true } label: {
-                    Label("Add files or a folder", systemImage: "plus.circle.fill")
+                ForEach(documents.sources) { s in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(s.label).lineLimit(2)
+                        Text(statusLine(s)).font(.caption).foregroundStyle(s.status.hasPrefix("failed") ? Color.red : Color.secondary)
+                        if let note = s.note { Text(note).font(.caption).foregroundStyle(.orange) }
+                    }
+                    .swipeActions { Button(role: .destructive) { documents.removeSource(s) } label: { Label("Remove", systemImage: "trash") } }
                 }
-                Text("\(documents.readyCount) document\(documents.readyCount == 1 ? "" : "s") · \(documents.chunks.count) searchable passages")
-                    .font(.footnote).foregroundStyle(.secondary)
-            } footer: {
-                Text("PDF, Word (.docx), Excel (.xlsx), text, Markdown, CSV, and photos or scans (read with on-device text recognition). Files are copied into BOT and indexed on your phone. Tip: keep your source files in one folder in iCloud Drive (for example \"BOT Documents\") so you can add or refresh them from the Files picker in one step. Adding a file with the same name replaces the old copy.")
+                Button { mode = .folder; importing = true } label: {
+                    Label("Add a synced folder (iCloud Drive or Google Drive)", systemImage: "folder.badge.plus")
+                }
+                Button { showAlbums = true } label: {
+                    Label("Add photo albums", systemImage: "photo.on.rectangle.angled")
+                }
+                if !documents.sources.isEmpty {
+                    Button { documents.rescanAll(force: true) } label: {
+                        Label("Check for new and changed files now", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+            } header: { Text("Synced sources") } footer: {
+                Text("BOT remembers these folders and albums and checks them for new or changed files each time you open it, so you never re-add anything. For Google Drive, install the Google Drive app and pick a Drive folder here (Files app, Browse, Drive). Google Docs and Sheets are skipped because iOS gives apps only a shortcut to them: upload or export PDFs, Word or Excel files instead. iCloud files that aren't on the phone yet are downloaded as needed.")
             }
 
-            Section("Documents") {
+            Section {
+                Button { mode = .files; importing = true } label: {
+                    Label("Add individual files", systemImage: "plus.circle.fill")
+                }
+                Text("\(documents.readyCount) item\(documents.readyCount == 1 ? "" : "s") · \(documents.chunks.count) searchable passages")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } footer: {
+                Text("PDF, Word (.docx), Excel (.xlsx), text, Markdown, CSV, and photos or scans (read with on-device text recognition). Adding a file with the same name replaces the old copy.")
+            }
+
+            Section("Library") {
                 if documents.docs.isEmpty {
                     Text("Nothing added yet").foregroundStyle(.secondary)
                 }
@@ -48,7 +76,11 @@ struct DocumentsView: View {
                             Text(d.status).font(.caption).foregroundStyle(.red)
                         }
                     }
-                    .swipeActions { Button(role: .destructive) { documents.remove(d) } label: { Label("Remove", systemImage: "trash") } }
+                    .swipeActions {
+                        if d.sourceID == nil {
+                            Button(role: .destructive) { documents.remove(d) } label: { Label("Remove", systemImage: "trash") }
+                        }
+                    }
                 }
             }
 
@@ -57,7 +89,7 @@ struct DocumentsView: View {
                     TextField("Ask something to test the search", text: $query)
                         .submitLabel(.search)
                         .onSubmit {
-                            results = documents.search(query, limit: 5)
+                            results = documents.search(query, limit: 5, scope: .all)
                             searched = true
                         }
                     if searched && results.isEmpty {
@@ -82,8 +114,25 @@ struct DocumentsView: View {
         .navigationTitle("Documents")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        .fileImporter(isPresented: $importing, allowedContentTypes: Self.types, allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { documents.add(urls: urls) }
+        .fileImporter(isPresented: $importing,
+                      allowedContentTypes: mode == .folder ? [.folder] : Self.fileTypes,
+                      allowsMultipleSelection: mode == .files) { result in
+            guard case .success(let urls) = result else { return }
+            if mode == .folder, let folder = urls.first { documents.addFolder(url: folder) } else { documents.add(urls: urls) }
+        }
+        .sheet(isPresented: $showAlbums) {
+            PhotoAlbumsView().environmentObject(documents)
+        }
+    }
+
+    private func statusLine(_ s: SourceRecord) -> String {
+        switch s.status {
+        case "ready":
+            let unit = s.kind == "photos" ? "photo" : "file"
+            let when = s.lastScan.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) } ?? "just now"
+            return "Up to date · \(s.fileCount) \(unit)\(s.fileCount == 1 ? "" : "s") · checked \(when)"
+        case "waiting": return "Waiting to check"
+        default: return s.status.prefix(1).uppercased() + s.status.dropFirst()
         }
     }
 }

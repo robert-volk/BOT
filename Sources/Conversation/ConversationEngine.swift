@@ -31,6 +31,7 @@ final class ConversationEngine: ObservableObject {
     private let historyURL: URL
     @Published var cameraQuestion: String?
     @Published var cameraReadsText = false
+    @Published var previewPhotoIDs: [String] = []
     private var autoRecording = false
     let recorder = MeetingRecorder()
     private var afterSpeech: (() -> Void)?
@@ -388,6 +389,11 @@ final class ConversationEngine: ObservableObject {
             handleLife(life)
             return true
         }
+        if let topic = PhotoIntent.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text, isPrivate: true))
+            handlePhotoSearch(topic, window: DateWindow.parse(text))
+            return true
+        }
         if DocsIntent.isListRequest(text) {
             turns.append(ChatTurn(role: .user, text: text))
             let names = documents.docs.filter { $0.status == "ready" }.map { $0.name }
@@ -710,6 +716,37 @@ final class ConversationEngine: ObservableObject {
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let out = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         return out.jpegData(compressionQuality: 0.7) ?? data
+    }
+
+    // MARK: Photos
+
+    /// "Find photos of the receipt from March": matched on-device by the text and contents BOT read from your photos.
+    private func handlePhotoSearch(_ topic: String, window: ClosedRange<Date>?) {
+        guard documents.hasPhotoChunks else {
+            speakLocal("You haven't added any photo albums yet. Open Documents from the menu, then add photo albums.", isPrivate: true)
+            return
+        }
+        let chunks: [DocChunk]
+        let words = DocumentStore.terms(topic)
+        if words.isEmpty {
+            chunks = documents.recentPhotoChunks(in: window, limit: 8)
+        } else {
+            chunks = documents.search(topic, limit: 12, scope: .photos, dateWindow: window).filter { $0.score >= 0.25 }.map { $0.chunk }
+        }
+        var ids: [String] = []
+        var seen = Set<String>()
+        for c in chunks { if let id = c.assetID, seen.insert(id).inserted { ids.append(id) } }
+        guard let best = chunks.first, !ids.isEmpty else {
+            speakLocal("I couldn't find a matching photo.", isPrivate: true)
+            return
+        }
+        previewPhotoIDs = Array(ids.prefix(8))
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        var reply = "I found \(ids.count) photo\(ids.count == 1 ? "" : "s"). The best match is from "
+            + (best.date.map { formatter.string(from: $0) } ?? "an unknown date") + "."
+        if let r = best.text.range(of: "Text in photo: ") { reply += " Its text says: " + String(best.text[r.upperBound...].prefix(220)) }
+        speakLocal(reply, isPrivate: true)
     }
 
     // MARK: Documents
