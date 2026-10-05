@@ -42,8 +42,17 @@ enum VisualIntent {
         }
     }
 
+    /// "can you please show me..." and "let me see..." become "show me ...".
+    static func stripPolite(_ s: String) -> String {
+        var t = s.replacingOccurrences(of: #"^(?:hey,? |ok,? |okay,? )?(?:can|could|would|will) you (?:please )?"#, with: "",
+                                       options: [.regularExpression, .caseInsensitive])
+        t = t.replacingOccurrences(of: #"^(?:please )?(?:i(?:'d| would) like to see|let me see|i want to see|i need to see)\b"#, with: "show me",
+                                   options: [.regularExpression, .caseInsensitive])
+        return t
+    }
+
     static func parse(_ raw: String) -> VisualIntent? {
-        let t = raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?"))
+        let t = stripPolite(raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?")))
 
         if let g = match(#"\b(?:chart|graph|plot|visuali[sz]e)\b.{0,30}\b(?:weather|forecast|temperatures?)\b(?:\s+(?:in|for)\s+([A-Za-z][A-Za-z .'-]*))?$"#, t) {
             return .weatherChart(g[0].trimmingCharacters(in: .whitespaces))
@@ -84,5 +93,59 @@ enum SVGSanitizer {
             svg = svg.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
         }
         return svg
+    }
+}
+
+
+/// The AI can put things on screen by ending its reply with a tag such as [[images: eiffel tower]].
+/// This removes the tags from the text (so they are never spoken or shown) and remembers what they asked for.
+struct VisualTagFilter {
+    private var buffer = ""
+    private(set) var tags: [VisualIntent] = []
+
+    mutating func feed(_ delta: String) -> String {
+        buffer += delta
+        var out = ""
+        while true {
+            if let open = buffer.range(of: "[[") {
+                out += buffer[..<open.lowerBound]
+                if let close = buffer.range(of: "]]", range: open.upperBound..<buffer.endIndex) {
+                    let inner = String(buffer[open.upperBound..<close.lowerBound])
+                    if let intent = Self.parse(inner) { tags.append(intent) }
+                    buffer = String(buffer[close.upperBound...])
+                    continue
+                }
+                buffer = String(buffer[open.lowerBound...])   // hold the unfinished tag until the rest arrives
+                return out
+            }
+            if buffer.hasSuffix("[") {                         // might be the start of "[["
+                out += buffer.dropLast()
+                buffer = "["
+                return out
+            }
+            out += buffer
+            buffer = ""
+            return out
+        }
+    }
+
+    /// Whatever is left at the end of the reply. An unfinished tag is dropped.
+    mutating func flush() -> String {
+        let rest = buffer.hasPrefix("[[") ? "" : buffer
+        buffer = ""
+        return rest
+    }
+
+    private static func parse(_ inner: String) -> VisualIntent? {
+        guard let colon = inner.firstIndex(of: ":") else { return nil }
+        let kind = inner[..<colon].lowercased().trimmingCharacters(in: .whitespaces)
+        let arg = inner[inner.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        switch kind {
+        case "images", "image", "pictures", "photos": return arg.isEmpty ? nil : .images(arg)
+        case "map": return .map(arg)
+        case "forecast", "chart": return .weatherChart(arg)
+        case "draw", "diagram": return arg.isEmpty ? nil : .diagram(arg)
+        default: return nil
+        }
     }
 }

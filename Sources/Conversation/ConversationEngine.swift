@@ -321,6 +321,7 @@ final class ConversationEngine: ObservableObject {
             var failed = false
             var system = system
             var direct: String?   // reply that needs no model (Basic mode + live data)
+            var tagFilter = VisualTagFilter()
 
             // Live data the model can't know: look it up first, then let the brain phrase the answer.
             if WeatherService.isWeatherQuestion(text), let svc = self?.weather {
@@ -367,8 +368,9 @@ final class ConversationEngine: ObservableObject {
                     self.liveReply = full
                     for s in chunker.feed(direct + " ") { self.say(s) }
                 } else {
-                for try await delta in brain.respond(system: system, history: history, user: text, maxTokens: answerTokens) {
+                for try await raw in brain.respond(system: system, history: history, user: text, maxTokens: answerTokens) {
                     guard let self, self.replyID == id, !Task.isCancelled else { return }
+                    let delta = tagFilter.feed(raw)
                     full += delta
                     self.liveReply = full
                     for s in chunker.feed(delta) { self.say(s) }
@@ -381,7 +383,18 @@ final class ConversationEngine: ObservableObject {
             }
             guard let self, self.replyID == id, !Task.isCancelled else { return }
 
+            let tail = tagFilter.flush()
+            if !tail.isEmpty {
+                full += tail
+                self.liveReply = full
+                for s in chunker.feed(tail) { self.say(s) }
+            }
             if let rest = chunker.flush() { self.say(rest) }
+            if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !tagFilter.tags.isEmpty {
+                full = "Okay, here you go."
+                self.liveReply = full
+                self.say(full)
+            }
             if full.isEmpty || failed && full.count < 3 {
                 full = failed ? "Sorry, I'm having trouble thinking right now. Could you try again?"
                               : "Hmm, I lost my train of thought. Could you say that again?"
@@ -390,6 +403,7 @@ final class ConversationEngine: ObservableObject {
             }
             self.turns.append(ChatTurn(role: .assistant, text: full))
             self.pendingExtraction = (text, full)
+            for tag in tagFilter.tags { self.handleVisual(tag, announce: false) }   // the AI asked to show something
             self.speaker.finishInput()
         }
     }
@@ -792,8 +806,8 @@ final class ConversationEngine: ObservableObject {
 
     // MARK: Pictures, maps, charts and diagrams
 
-    private func handleVisual(_ intent: VisualIntent) {
-        phase = .thinking
+    private func handleVisual(_ intent: VisualIntent, announce: Bool = true) {
+        if announce { phase = .thinking }
         let metric = prefs.metric
         let braveKey = Keychain.get(Self.braveKeyAccount)
         let brain = self.brain
@@ -801,7 +815,7 @@ final class ConversationEngine: ObservableObject {
             guard let self else { return }
             switch intent {
             case .images(let query):
-                await self.showWebImages(query, intro: "", braveKey: braveKey)
+                await self.showWebImages(query, intro: "", braveKey: braveKey, announce: announce)
 
             case .map(let place):
                 var coordinate: CLLocationCoordinate2D?
@@ -819,7 +833,7 @@ final class ConversationEngine: ObservableObject {
                     return
                 }
                 self.visual = .map(title: title.capitalizedFirst, coordinate: c)
-                self.speakLocal("Here's the map of \(title).")
+                if announce { self.speakLocal("Here's the map of \(title).") }
 
             case .weatherChart(let place):
                 var coordinate: CLLocationCoordinate2D?
@@ -841,14 +855,14 @@ final class ConversationEngine: ObservableObject {
                     return
                 }
                 self.visual = .forecast(place: label.capitalizedFirst, days: days, metric: metric)
-                self.speakLocal("Here's the seven day forecast for \(label).")
+                if announce { self.speakLocal("Here's the seven day forecast for \(label).") }
 
             case .diagram(let subject):
                 guard !(brain is BasicBrain) else {
                     self.speakLocal("Drawing needs the AI brain. Add a Claude key in Customize, under Brain.")
                     return
                 }
-                self.speakLocal("Okay, drawing that now.")
+                if announce { self.speakLocal("Okay, drawing that now.") }
                 let system = "You draw clear diagrams and illustrations as SVG. Output ONLY one complete <svg> element: viewBox=\"0 0 800 600\", self-contained, no scripts, no external images or links, large readable text labels (font-size at least 18), simple shapes, arrows where useful, good color contrast, white background. No explanation, no markdown."
                 let out = (try? await brain.complete(system: system, prompt: "Draw: \(subject)", maxTokens: 3500)) ?? ""
                 guard let svg = SVGSanitizer.extract(out) else {
@@ -856,19 +870,19 @@ final class ConversationEngine: ObservableObject {
                     return
                 }
                 self.visual = .diagram(title: subject.capitalizedFirst, svg: svg)
-                self.speakLocal("Here's your diagram.")
+                if announce { self.speakLocal("Here's your diagram.") }
             }
         }
     }
 
-    private func showWebImages(_ query: String, intro: String, braveKey: String?) async {
+    private func showWebImages(_ query: String, intro: String, braveKey: String?, announce: Bool = true) async {
         let images = await ImageSearchService.search(query, braveKey: braveKey, limit: 8)
         guard !images.isEmpty else {
             speakLocal(intro + "I couldn't find pictures of \(query).")
             return
         }
         visual = .images(query: query, images: images)
-        speakLocal(intro + "Here are \(images.count) pictures of \(query), from the web. Swipe to see more.")
+        if announce { speakLocal(intro + "Here are \(images.count) pictures of \(query), from the web. Swipe to see more.") }
     }
 
     // MARK: Documents

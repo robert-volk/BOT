@@ -158,8 +158,8 @@ enum PhotoIntent {
     /// "find photos of the receipt from March", "show me the screenshot with the flight number"
     /// → the topic ("the receipt from March"). Empty topic means "just show recent ones".
     static func parse(_ raw: String) -> String? {
-        let t = raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?"))
-        let pattern = #"^(?:please )?(?:find|show|pull up|look for|search|get)\b.{0,25}?\b(?:photos?|pictures?|pics?|screenshots?|images?)\b(?:\s+(?:of|with|about|from|for|showing|containing))?\s*(.*)$"#
+        let t = VisualIntent.stripPolite(raw.trimmingCharacters(in: CharacterSet(charactersIn: " .!?")))
+        let pattern = #"^(?:please )?(?:find|show|pull up|look for|search|get|display|bring up|give)\b.{0,25}?\b(?:photos?|pictures?|pics?|screenshots?|images?)\b(?:\s+(?:of|with|about|from|for|showing|containing))?\s*(.*)$"#
         if let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
            let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
            let r = Range(m.range(at: 1), in: t) {

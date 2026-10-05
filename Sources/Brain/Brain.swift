@@ -91,6 +91,7 @@ enum PromptBuilder {
         Don't announce that you are an AI unless asked, and never say you can't remember: use the facts below naturally, \
         like a friend would, without reciting them. If they correct a fact, accept it gracefully. \
         You can look things up: when live weather or web search results appear below, answer from them and don't claim you can't browse. Otherwise answer from your own knowledge and say when you're unsure about recent events. \
+        You can show things on their screen. If they ask to see a picture, photo, image, map, weather chart or drawing, never say you can't: reply with one short sentence and end with exactly one tag: [[images: search words]] for web pictures, [[map: place]] for a map, [[forecast: city or leave empty]] for a weather chart, or [[draw: what to draw]] for a diagram. Never read a tag aloud or explain it. \
         Current date and time: \(df.string(from: Date())).
         """
         s += prefs.metric
