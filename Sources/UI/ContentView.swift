@@ -103,13 +103,14 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, new in
             if new != .active { engine.end() }
             if new == .active { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll() }
+            applyScreenLock()
         }
         .onReceive(NotificationCenter.default.publisher(for: .botWakeRequested)) { _ in consumeSiriLaunch() }
-        .onAppear { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll() }
+        .onAppear { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll(); applyScreenLock() }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in resyncCalendar() }
-        .onChange(of: engine.active) { _, on in
-            UIApplication.shared.isIdleTimerDisabled = on
-        }
+        .onChange(of: engine.active) { _, _ in applyScreenLock() }
+        .onChange(of: prefs.keepAwake) { _, _ in applyScreenLock() }
+        .onReceive(engine.recorder.$isRecording) { _ in applyScreenLock() }
         .onChange(of: prefs.brain) { _, _ in engine.refreshBrain() }
         .onChange(of: prefs.webSearch) { _, _ in engine.refreshBrain() }
         .tint(theme.accent)
@@ -117,6 +118,12 @@ struct ContentView: View {
 
     private func resyncCalendar() {
         Task { await calendar.sync(with: settings.prefs) }
+    }
+
+    /// The screen stays on while BOT is open (if you want that), during a conversation, and while recording notes.
+    private func applyScreenLock() {
+        let wantsAwake = prefs.keepAwake || engine.active || engine.recorder.isRecording
+        UIApplication.shared.isIdleTimerDisabled = scenePhase == .active && wantsAwake
     }
 
     private func consumeSiriLaunch() {

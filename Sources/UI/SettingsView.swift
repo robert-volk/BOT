@@ -160,6 +160,7 @@ struct SettingsView: View {
             sliderRow("Size", value: $settings.prefs.robotScale, range: 0.7...1.2, format: "%.2f×")
             sliderRow("Animation", value: $settings.prefs.animationLevel, range: 0...1, format: "%.0f%%", scale: 100)
             Toggle("Haptics", isOn: $settings.prefs.haptics)
+            Toggle("Keep the screen on while BOT is open", isOn: $settings.prefs.keepAwake)
         }
     }
 

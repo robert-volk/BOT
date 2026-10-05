@@ -161,6 +161,7 @@ struct Preferences: Codable, Equatable {
     var showCaptions: Bool = true
     var captionSize: Double = 20
     var haptics: Bool = true
+    var keepAwake: Bool = true
 
     // Voice
     var voiceID: String? = nil

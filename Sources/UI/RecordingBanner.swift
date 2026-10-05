@@ -50,7 +50,6 @@ struct RecordingBanner: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.red.opacity(0.4), lineWidth: 1))
             .padding(.horizontal, 20)
             .onAppear { pulse = true }
-            .onChange(of: recorder.isRecording) { _, on in UIApplication.shared.isIdleTimerDisabled = on }
         }
     }
 
