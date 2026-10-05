@@ -175,6 +175,25 @@ final class ConversationEngine: ObservableObject {
         }
     }
 
+    /// The app was opened or came back to the screen: start listening right away, with no greeting.
+    func listenOnOpen() {
+        guard prefs.listenOnOpen, !active, phase == .idle, !recorder.isRecording else { return }
+        Task { [weak self] in
+            // A short pause lets a Siri launch, a notification tap or a reminder claim the microphone first.
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard let self, !self.active, self.phase == .idle, !self.recorder.isRecording else { return }
+            guard await Listener.requestPermissions() else { return }   // asks the very first time
+            guard !self.active, self.phase == .idle, !self.recorder.isRecording else { return }
+            self.errorNote = nil
+            self.active = true
+            self.emptyStreak = 0
+            self.greeted = true
+            Listener.configureAudioSession()
+            self.refreshBrain()
+            self.startListening()
+        }
+    }
+
     /// "Hey Siri, talk to BOT" (or a Shortcut / the Action Button) landed in the app.
     func startFromSiri() {
         guard !active else { return }

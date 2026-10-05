@@ -102,11 +102,11 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, new in
             if new != .active { engine.end() }
-            if new == .active { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll() }
+            if new == .active { if !consumeSiriLaunch() { engine.listenOnOpen() }; resyncCalendar(); documents.rescanAll() }
             applyScreenLock()
         }
         .onReceive(NotificationCenter.default.publisher(for: .botWakeRequested)) { _ in consumeSiriLaunch() }
-        .onAppear { consumeSiriLaunch(); resyncCalendar(); documents.rescanAll(); applyScreenLock() }
+        .onAppear { if !consumeSiriLaunch() { engine.listenOnOpen() }; resyncCalendar(); documents.rescanAll(); applyScreenLock() }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in resyncCalendar() }
         .onChange(of: engine.active) { _, _ in applyScreenLock() }
         .onChange(of: prefs.keepAwake) { _, _ in applyScreenLock() }
@@ -126,8 +126,11 @@ struct ContentView: View {
         UIApplication.shared.isIdleTimerDisabled = scenePhase == .active && wantsAwake
     }
 
-    private func consumeSiriLaunch() {
-        if LaunchSignal.shared.consume() { engine.startFromSiri() }
+    @discardableResult
+    private func consumeSiriLaunch() -> Bool {
+        guard LaunchSignal.shared.consume() else { return false }
+        engine.startFromSiri()
+        return true
     }
 
     // MARK: Pieces

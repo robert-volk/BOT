@@ -205,6 +205,7 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.words)
             }
             Toggle("Hands-free (keep listening)", isOn: $settings.prefs.handsFree)
+            Toggle("Start listening when BOT opens", isOn: $settings.prefs.listenOnOpen)
             sliderRow("Pause before reply", value: $settings.prefs.silenceDelay, range: 0.6...2.0, format: "%.1f s")
             Picker("Reply length", selection: $settings.prefs.replyLength) {
                 ForEach(ReplyLength.allCases) { Text($0.title).tag($0) }

@@ -171,6 +171,7 @@ struct Preferences: Codable, Equatable {
     // Conversation
     var botName: String = "BOT"
     var handsFree: Bool = true
+    var listenOnOpen: Bool = true
     var silenceDelay: Double = 1.0
     var replyLength: ReplyLength = .brief
     var personality: Personality = .warm
