@@ -33,6 +33,8 @@ struct ContentView: View {
                 robot
                 statusBlock
                 captions
+                MeetingNotesButton(recorder: engine.recorder, theme: theme) { engine.startMeetingNotesNow() }
+                    .padding(.top, 6)
                 Spacer(minLength: 8)
                 controls
             }

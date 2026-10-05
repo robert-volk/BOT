@@ -12,6 +12,8 @@ import UserNotifications
 @MainActor
 final class CalendarCenter: ObservableObject {
     @Published private(set) var authorized = false
+    /// One line for Settings: when the next automatic meeting notes will start (or why nothing is scheduled).
+    @Published private(set) var autoNotesStatus = ""
     /// Set by the engine: facts BOT remembers that mention a person's first name.
     var factsProvider: ((String) -> [String])?
 
@@ -93,7 +95,8 @@ final class CalendarCenter: ObservableObject {
         center.removePendingNotificationRequests(withIdentifiers: old)
         reminders.unregisterAlerts(prefix: Self.idPrefix)
 
-        guard prefs.calendarAlerts, authorized, await reminders.ensureAuthorized() else {
+        guard prefs.calendarAlerts || prefs.autoMeetingNotes, authorized, await reminders.ensureAuthorized() else {
+            autoNotesStatus = prefs.autoMeetingNotes ? "Calendar or notification access is off, so automatic notes can't be scheduled." : ""
             cleanSounds(keeping: [])
             return
         }
@@ -107,6 +110,7 @@ final class CalendarCenter: ObservableObject {
 
         var here: CLLocation?
         var triedHere = false
+        var nextNotes: (title: String, start: Date)?
         var leaveCount = 0
 
         for e in upcoming {
@@ -118,8 +122,10 @@ final class CalendarCenter: ObservableObject {
                 if let here, await scheduleLeaveAlert(for: e, from: here, prefs: prefs, now: now, keep: &keep) { leaveCount += 1 }
             }
             if prefs.autoMeetingNotes, Self.qualifiesForNotes(e) {
-                await scheduleMeetingNotes(for: e, now: now, silent: prefs.speakInBackground)
+                if let n = await scheduleMeetingNotes(for: e, now: now, silent: prefs.speakInBackground),
+                   nextNotes == nil || n.start < nextNotes!.start { nextNotes = n }
             }
+            guard prefs.calendarAlerts else { continue }   // the rest of the loop is the "starts in N minutes" alert
             let fire = e.startDate.addingTimeInterval(-Double(lead) * 60)
             guard fire.timeIntervalSince(now) > 2 else { continue }
             let name = title(e)
@@ -158,6 +164,7 @@ final class CalendarCenter: ObservableObject {
             try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
             reminders.registerAlert(key: id, fire: fire, line: line)
         }
+        autoNotesStatus = Self.notesStatus(prefs.autoMeetingNotes, next: nextNotes)
         cleanSounds(keeping: keep)
     }
 
@@ -170,7 +177,8 @@ final class CalendarCenter: ObservableObject {
 
     /// At the start time: start notes (automatically if BOT is running, otherwise via a tap on the banner).
     /// At the end time: stop them.
-    private func scheduleMeetingNotes(for e: EKEvent, now: Date, silent: Bool) async {
+    private func scheduleMeetingNotes(for e: EKEvent, now: Date, silent: Bool) async -> (title: String, start: Date)? {
+        var result: (title: String, start: Date)?
         let name = title(e)
         let base = (e.eventIdentifier ?? name) + "-\(Int(e.startDate.timeIntervalSince1970))"
         if e.startDate.timeIntervalSince(now) > 2 {
@@ -184,10 +192,29 @@ final class CalendarCenter: ObservableObject {
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: e.startDate.timeIntervalSince(now), repeats: false)
             try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
             reminders.registerAlert(key: id, fire: e.startDate, line: name)
+            result = (name, e.startDate)
         }
         if e.endDate.timeIntervalSince(now) > 60 {
             reminders.registerAlert(key: Self.idPrefix + "notes-stop-" + base, fire: e.endDate, line: name)
         }
+        return result
+    }
+
+    private static func notesStatus(_ on: Bool, next: (title: String, start: Date)?) -> String {
+        guard on else { return "" }
+        guard let next else { return "No upcoming meetings with attendees or a location in the next 3 days." }
+        let f = DateFormatter()
+        f.dateFormat = "EEE h:mm a"
+        return "Next automatic notes: \(next.title), \(f.string(from: next.start))."
+    }
+
+    /// The meeting happening now (or starting within 10 minutes), used to title notes you start by hand.
+    func currentMeetingTitle() -> String? {
+        let now = Date()
+        let soon = now.addingTimeInterval(600)
+        return events(from: now.addingTimeInterval(-4 * 3600), to: soon)
+            .first(where: { $0.endDate > now && $0.startDate <= soon })
+            .map { title($0) }
     }
 
     private static func isVirtual(_ location: String) -> Bool {

@@ -61,7 +61,12 @@ struct SettingsView: View {
             .onChange(of: settings.prefs.calendarLead) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
             .onChange(of: settings.prefs.leaveAlerts) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
             .onChange(of: settings.prefs.meetingPrep) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
-            .onChange(of: settings.prefs.autoMeetingNotes) { _, _ in Task { await calendar.sync(with: settings.prefs) } }
+            .onChange(of: settings.prefs.autoMeetingNotes) { _, on in
+                Task {
+                    if on, !(await calendar.requestAccess()) { settings.prefs.autoMeetingNotes = false; return }
+                    await calendar.sync(with: settings.prefs)
+                }
+            }
             .onChange(of: settings.prefs.briefingEnabled) { _, _ in applyBriefing() }
             .onChange(of: settings.prefs.briefingMinutes) { _, _ in applyBriefing() }
             .onChange(of: settings.prefs.speakInBackground) { _, on in
@@ -295,6 +300,9 @@ struct SettingsView: View {
             Toggle("Leave-now alerts (drive time to meetings with an address)", isOn: $settings.prefs.leaveAlerts)
             Toggle("Meeting prep (who is attending, location, notes)", isOn: $settings.prefs.meetingPrep)
             Toggle("Take meeting notes automatically", isOn: $settings.prefs.autoMeetingNotes)
+            if settings.prefs.autoMeetingNotes, !calendar.autoNotesStatus.isEmpty {
+                Text(calendar.autoNotesStatus).font(.footnote).foregroundStyle(.secondary)
+            }
             Toggle("Let Claude see my schedule", isOn: $settings.prefs.calendarToClaude)
         } header: { Text("Calendar") } footer: {
             Text("BOT reads your calendar but never changes it. Alerts show a banner and speak the meeting aloud, and are scheduled for the next 3 days each time you open BOT, so open it every few days and after your schedule changes. Automatic meeting notes start at the meeting's start time if BOT is open or running in the background (turn on Speak alerts even in silent mode), otherwise you get a banner to tap, and they stop at the scheduled end. They use the microphone, so only use them where recording is allowed and let participants know. You can ask “What’s on my calendar today?” or “When’s my next meeting?”. The on-device AI always sees your next two days; Claude only does if you turn on the last switch, because that sends event titles to Anthropic.")

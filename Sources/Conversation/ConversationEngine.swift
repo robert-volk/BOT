@@ -1052,6 +1052,29 @@ final class ConversationEngine: ObservableObject {
         }
     }
 
+    /// The home-screen button: start taking meeting notes right now, silently (no spoken intro or summary in a meeting).
+    func startMeetingNotesNow() {
+        guard !recorder.isRecording else { return }
+        Haptics.tap(enabled: prefs.haptics)
+        Task { [weak self] in
+            guard let self else { return }
+            guard await Listener.requestPermissions() else {
+                self.permissionDenied = true
+                return
+            }
+            self.end()
+            Listener.configureAudioSession()
+            self.recorder.title = self.calendar.currentMeetingTitle()
+            self.recorder.onFailure = { [weak self] in
+                self?.autoRecording = false
+                self?.errorNote = "Meeting notes stopped: check the microphone and speech recognition permissions."
+            }
+            self.recorder.start(kind: .meeting) { [weak self] in self?.finishRecording() }
+            self.autoRecording = self.recorder.isRecording
+            if !self.recorder.isRecording { self.errorNote = "Couldn't start meeting notes. Speech recognition isn't available right now." }
+        }
+    }
+
     /// A calendar meeting started or ended (automatic meeting notes).
     private func handleMeetingSignal(_ signal: MeetingSignal) {
         switch signal {

@@ -58,3 +58,26 @@ struct RecordingBanner: View {
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
+
+
+/// The home-screen button that starts meeting notes by hand. Hidden while a recording is running (the banner has Stop).
+struct MeetingNotesButton: View {
+    @ObservedObject var recorder: MeetingRecorder
+    let theme: Theme
+    let onStart: () -> Void
+
+    var body: some View {
+        if !recorder.isRecording {
+            Button(action: onStart) {
+                Label("Start meeting notes", systemImage: "waveform.badge.mic")
+                    .font(theme.font(15, .semibold))
+                    .foregroundStyle(theme.text)
+                    .padding(.horizontal, 18).padding(.vertical, 11)
+                    .background(theme.surface, in: Capsule())
+                    .overlay(Capsule().stroke(theme.accent.opacity(0.55), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Starts taking notes on the meeting you are in")
+        }
+    }
+}
