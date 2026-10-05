@@ -12,6 +12,12 @@ final class MeetingRecorder: ObservableObject {
     @Published private(set) var transcript = ""
     @Published private(set) var kind: Kind?
     private(set) var startedAt = Date()
+    /// The calendar event this recording belongs to, when it started automatically.
+    var title: String?
+    /// Called if recording can't start or keep going (for example when iOS won't open the microphone in the background).
+    var onFailure: (() -> Void)?
+    private var failures = 0
+    private var cycleStartedAt = Date()
 
     private let engine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -33,6 +39,7 @@ final class MeetingRecorder: ObservableObject {
         partial = ""
         transcript = ""
         startedAt = Date()
+        failures = 0
         isRecording = true
         beginCycle()
     }
@@ -50,6 +57,7 @@ final class MeetingRecorder: ObservableObject {
         transcript = ""
         kind = nil
         onStopPhrase = nil
+        onFailure = nil
         return (text, seconds)
     }
 
@@ -70,11 +78,12 @@ final class MeetingRecorder: ObservableObject {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { retrySoon(gen); return }
+        guard format.sampleRate > 0 else { fail(gen); return }
+        cycleStartedAt = Date()
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: format, block: Self.tapBlock(request: req))
         engine.prepare()
-        do { try engine.start() } catch { retrySoon(gen); return }
+        do { try engine.start() } catch { fail(gen); return }
 
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
@@ -101,8 +110,23 @@ final class MeetingRecorder: ObservableObject {
         }
         if done {
             commitPartial()
-            retrySoon(gen)
+            // A task that ends within seconds without hearing anything means recognition isn't working right now.
+            if Date().timeIntervalSince(cycleStartedAt) < 3, (text ?? "").isEmpty { fail(gen) } else { failures = 0; retrySoon(gen) }
         }
+    }
+
+    private func fail(_ gen: Int) {
+        failures += 1
+        guard failures >= 4 else { retrySoon(gen); return }
+        isRecording = false
+        cycleTimer?.invalidate()
+        cycleTimer = nil
+        teardown()
+        kind = nil
+        onStopPhrase = nil
+        let callback = onFailure
+        onFailure = nil
+        callback?()
     }
 
     private func commitPartial() {

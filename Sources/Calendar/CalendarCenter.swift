@@ -117,6 +117,9 @@ final class CalendarCenter: ObservableObject {
                 }
                 if let here, await scheduleLeaveAlert(for: e, from: here, prefs: prefs, now: now, keep: &keep) { leaveCount += 1 }
             }
+            if prefs.autoMeetingNotes, Self.qualifiesForNotes(e) {
+                await scheduleMeetingNotes(for: e, now: now, silent: prefs.speakInBackground)
+            }
             let fire = e.startDate.addingTimeInterval(-Double(lead) * 60)
             guard fire.timeIntervalSince(now) > 2 else { continue }
             let name = title(e)
@@ -156,6 +159,35 @@ final class CalendarCenter: ObservableObject {
             reminders.registerAlert(key: id, fire: fire, line: line)
         }
         cleanSounds(keeping: keep)
+    }
+
+    /// Real meetings only: other attendees or a location, between 10 minutes and 3 hours long.
+    private static func qualifiesForNotes(_ e: EKEvent) -> Bool {
+        let length = e.endDate.timeIntervalSince(e.startDate)
+        guard !e.isAllDay, length >= 600, length <= 3 * 3600 else { return false }
+        return e.hasAttendees || !(e.location ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// At the start time: start notes (automatically if BOT is running, otherwise via a tap on the banner).
+    /// At the end time: stop them.
+    private func scheduleMeetingNotes(for e: EKEvent, now: Date, silent: Bool) async {
+        let name = title(e)
+        let base = (e.eventIdentifier ?? name) + "-\(Int(e.startDate.timeIntervalSince1970))"
+        if e.startDate.timeIntervalSince(now) > 2 {
+            let content = UNMutableNotificationContent()
+            content.title = "Meeting starting"
+            content.body = "Tap to take notes: \(name)"
+            if silent { content.sound = nil } else { content.sound = UNNotificationSound.default }
+            content.threadIdentifier = "bot-calendar"
+            content.userInfo = ["notesStart": name, "notesEnd": e.endDate.timeIntervalSince1970]
+            let id = Self.idPrefix + "notes-start-" + base
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: e.startDate.timeIntervalSince(now), repeats: false)
+            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+            reminders.registerAlert(key: id, fire: e.startDate, line: name)
+        }
+        if e.endDate.timeIntervalSince(now) > 60 {
+            reminders.registerAlert(key: Self.idPrefix + "notes-stop-" + base, fire: e.endDate, line: name)
+        }
     }
 
     private static func isVirtual(_ location: String) -> Bool {

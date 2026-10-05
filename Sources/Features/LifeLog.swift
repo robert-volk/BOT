@@ -12,6 +12,7 @@ struct MeetingNote: Identifiable, Codable, Equatable {
     var summary: String
     var actions: [String]
     var transcript: String
+    var title: String? = nil
 }
 
 struct JournalEntry: Identifiable, Codable, Equatable {

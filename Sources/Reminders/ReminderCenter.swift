@@ -9,6 +9,12 @@ struct Reminder: Identifiable, Codable, Equatable {
     var repeatRule: String? = nil
 }
 
+/// Sent when a calendar meeting begins or ends (for automatic meeting notes).
+enum MeetingSignal {
+    case start(String)
+    case stop
+}
+
 enum ScheduleOutcome {
     case scheduled(spokenBanner: Bool)
     case needsPermission
@@ -26,6 +32,7 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     var onForegroundFire: ((String) -> Void)?
     /// Called when the daily briefing alarm goes off (or its banner is tapped).
     var onBriefing: (() -> Void)?
+    var onMeetingNotes: ((MeetingSignal) -> Void)?
     /// The task of the reminder that most recently went off, so "snooze" knows what to repeat.
     private(set) var lastFiredTask: String?
     private var briefingMinutes: Int?
@@ -88,6 +95,20 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     }
 
     private func timerFired(key: String, line: String) {
+        if key.hasPrefix("cal-notes-start-") {
+            alerts[key] = nil
+            timers[key] = nil
+            if announced.insert(key).inserted { onMeetingNotes?(.start(line)) }
+            refreshAlerts()
+            return
+        }
+        if key.hasPrefix("cal-notes-stop-") {
+            alerts[key] = nil
+            timers[key] = nil
+            onMeetingNotes?(.stop)
+            refreshAlerts()
+            return
+        }
         if key == "briefing-daily" {
             alerts[key] = nil
             timers[key] = nil
@@ -129,6 +150,28 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         dc.minute = m % 60
         if let next = Calendar.current.nextDate(after: Date().addingTimeInterval(61), matching: dc, matchingPolicy: .nextTime) {
             registerAlert(key: "briefing-daily", fire: next, line: "")
+        }
+    }
+
+    /// A notification that says "start notes". Ignored once the meeting is over, or if it already started.
+    private func startNotes(key: String, title: String, end: Double?) {
+        if let end, Date().timeIntervalSince1970 > end { return }
+        guard announced.insert(key).inserted else { return }
+        onMeetingNotes?(.start(title))
+    }
+
+    /// Shows a notification right away (for example "Meeting notes saved").
+    func postNow(title: String, body: String, userInfo: [String: Any] = [:]) {
+        Task {
+            guard await ensureAuthorized() else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = backgroundSpeech ? nil : .default
+            content.userInfo = userInfo
+            let request = UNNotificationRequest(identifier: "post-\(UUID().uuidString)", content: content,
+                                                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
+            try? await UNUserNotificationCenter.current().add(request)
         }
     }
 
@@ -388,6 +431,13 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
             completionHandler([.banner, .list])
             return
         }
+        if let title = info["notesStart"] as? String {
+            let end = info["notesEnd"] as? Double
+            let key = notification.request.identifier
+            Task { @MainActor in self.startNotes(key: key, title: title, end: end) }
+            completionHandler([.banner, .list])
+            return
+        }
         let id = info["id"] as? String
         let spoken = info["spoken"] as? String
         let key = notification.request.identifier
@@ -400,6 +450,13 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
         let info = response.notification.request.content.userInfo
         if info["briefing"] != nil {
             Task { @MainActor in self.triggerBriefing() }
+            completionHandler()
+            return
+        }
+        if let title = info["notesStart"] as? String {
+            let end = info["notesEnd"] as? Double
+            let key = response.notification.request.identifier
+            Task { @MainActor in self.startNotes(key: key, title: title, end: end) }
             completionHandler()
             return
         }

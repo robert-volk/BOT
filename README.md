@@ -59,6 +59,7 @@ Say "switch to metric" (or "use Fahrenheit") or pick **Units** in Customize → 
 ## Meetings, journal, parking, reading text
 - **Meeting prep**: the heads-up before a meeting now includes who's attending, where, your notes on the event, and anything BOT remembers about those people. Say "prep me for my next meeting" any time.
 - **Meeting notes**: "take notes on this meeting" listens (on-device speech recognition; audio is never saved), then says "stop meeting notes". BOT saves a summary and action items, and adds the action items to your to-do list. Ask "what were the action items?" later.
+- **Automatic meeting notes** (Customize → Calendar): at a meeting's start time BOT starts taking notes silently if it's open or running in the background (Speak alerts even in silent mode); otherwise a "Meeting starting" banner starts them with one tap. It stops at the scheduled end and posts a quiet "Meeting notes saved" notification instead of speaking. Only real meetings qualify (other attendees or a location, 10 minutes to 3 hours). It uses the microphone: only use it where recording is allowed.
 - **Voice journal**: "start my journal" (say "end journal" to finish) or "journal: today I...". "Reflect on my week" reads you a reflection.
 - **Parking**: "remember where I parked" (optionally "I parked on level 3"), then "where did I park?" gives walking directions.
 - **Read text aloud**: "read this" opens the camera; BOT reads the text using Apple's on-device text recognition (no Claude, nothing uploaded).

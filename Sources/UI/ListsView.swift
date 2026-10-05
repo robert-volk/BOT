@@ -55,8 +55,8 @@ struct ListsView: View {
                                 Text(m.transcript).font(.caption).foregroundStyle(.secondary)
                             } label: {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(m.date, style: .date)
-                                    Text("\(m.minutes) min").font(.caption).foregroundStyle(.secondary)
+                                    Text(m.title ?? "Meeting")
+                                    Text("\(m.date.formatted(date: .abbreviated, time: .shortened)) \u{00B7} \(m.minutes) min").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                             .swipeActions { Button(role: .destructive) { lists.deleteMeeting(m) } label: { Label("Delete", systemImage: "trash") } }

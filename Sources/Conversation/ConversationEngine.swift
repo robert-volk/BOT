@@ -30,6 +30,7 @@ final class ConversationEngine: ObservableObject {
     private let historyURL: URL
     @Published var cameraQuestion: String?
     @Published var cameraReadsText = false
+    private var autoRecording = false
     let recorder = MeetingRecorder()
     private var afterSpeech: (() -> Void)?
     private var lastPlace: String?
@@ -67,6 +68,7 @@ final class ConversationEngine: ObservableObject {
         speaker.onIdle = { [weak self] in self?.speechDidFinish() }
         reminders.onForegroundFire = { [weak self] line in self?.announce(line) }
         reminders.onBriefing = { [weak self] in self?.startBriefing() }
+        reminders.onMeetingNotes = { [weak self] signal in self?.handleMeetingSignal(signal) }
         calendar.factsProvider = { [weak facts] name in
             facts?.facts.filter { $0.text.localizedCaseInsensitiveContains(name) }.map { $0.text } ?? []
         }
@@ -752,30 +754,43 @@ final class ConversationEngine: ObservableObject {
         }
     }
 
-    func finishRecording() {
+    func finishRecording(speak: Bool = true) {
         guard recorder.isRecording, let kind = recorder.kind else { return }
+        let speak = speak && !autoRecording      // notes that started automatically never talk
+        let title = recorder.title
         let result = recorder.stop()
-        phase = .thinking
+        recorder.title = nil
+        autoRecording = false
+        if speak { phase = .thinking }
         let onDevice = BrainFactory.onDeviceBrain()
         Task { [weak self] in
             guard let self else { return }
             guard !result.text.isEmpty else {
-                self.speakLocal("I didn't catch anything, so I didn't save it.", isPrivate: true)
+                if speak { self.speakLocal("I didn't catch anything, so I didn't save it.", isPrivate: true) }
                 return
             }
             switch kind {
             case .meeting:
                 let summary = await MeetingSummarizer.summarize(result.text, brain: onDevice)
                 let minutes = max(1, (result.seconds + 30) / 60)
-                self.lists.addMeeting(MeetingNote(minutes: minutes, summary: summary.summary, actions: summary.actions, transcript: result.text))
+                self.lists.addMeeting(MeetingNote(minutes: minutes, summary: summary.summary, actions: summary.actions,
+                                                  transcript: result.text, title: title))
                 if !summary.actions.isEmpty { self.lists.add(summary.actions, to: "to-do") }
-                var reply = "Saved your meeting notes, \(minutes) minute\(minutes == 1 ? "" : "s"). Summary: \(summary.summary)"
-                if !summary.actions.isEmpty {
-                    let n = summary.actions.count
-                    reply += " I found \(n) action item\(n == 1 ? "" : "s") and added \(n == 1 ? "it" : "them") to your to-do list: "
-                        + ListStore.joined(Array(summary.actions.prefix(3))) + "."
+                let n = summary.actions.count
+                if speak {
+                    var reply = "Saved your meeting notes" + (title.map { " for \($0)" } ?? "")
+                        + ", \(minutes) minute\(minutes == 1 ? "" : "s"). Summary: \(summary.summary)"
+                    if n > 0 {
+                        reply += " I found \(n) action item\(n == 1 ? "" : "s") and added \(n == 1 ? "it" : "them") to your to-do list: "
+                            + ListStore.joined(Array(summary.actions.prefix(3))) + "."
+                    }
+                    self.speakLocal(reply, isPrivate: true)
+                } else {
+                    // Automatic notes never talk during a meeting: a quiet notification instead.
+                    self.reminders.postNow(title: "Meeting notes saved" + (title.map { ": \($0)" } ?? ""),
+                                           body: String(summary.summary.prefix(160))
+                                               + (n > 0 ? " \(n) action item\(n == 1 ? "" : "s") added to your to-do list." : ""))
                 }
-                self.speakLocal(reply, isPrivate: true)
             case .journal:
                 var mood: String?
                 if let brain = onDevice,
@@ -787,6 +802,33 @@ final class ConversationEngine: ObservableObject {
                 self.lists.addJournal(result.text, mood: mood)
                 self.speakLocal("Saved your journal entry." + (mood.map { " You sound \($0)." } ?? ""), isPrivate: true)
             }
+        }
+    }
+
+    /// A calendar meeting started or ended (automatic meeting notes).
+    private func handleMeetingSignal(_ signal: MeetingSignal) {
+        switch signal {
+        case .start(let title):
+            guard !recorder.isRecording else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                guard await Listener.requestPermissions() else { return }
+                self.end()
+                Listener.configureAudioSession()
+                self.recorder.title = title
+                self.recorder.onFailure = { [weak self] in
+                    self?.autoRecording = false
+                    self?.reminders.postNow(title: "Couldn't start meeting notes", body: "Tap to start notes: \(title)",
+                                            userInfo: ["notesStart": title,
+                                                       "notesEnd": Date().addingTimeInterval(3 * 3600).timeIntervalSince1970])
+                }
+                self.recorder.start(kind: .meeting) { [weak self] in self?.finishRecording() }
+                self.autoRecording = self.recorder.isRecording
+                Haptics.tap(enabled: self.prefs.haptics)
+            }
+        case .stop:
+            guard recorder.isRecording, autoRecording else { return }
+            finishRecording(speak: false)
         }
     }
 

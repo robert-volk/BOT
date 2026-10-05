@@ -17,7 +17,8 @@ struct RecordingBanner: View {
                         .frame(width: 10, height: 10)
                         .opacity(pulse ? 0.25 : 1)
                         .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-                    Text(recorder.kind == .journal ? "Journal" : "Meeting notes")
+                    Text(recorder.kind == .journal ? "Journal" : (recorder.title ?? "Meeting notes"))
+                        .lineLimit(1)
                         .font(theme.font(15, .semibold))
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         Text(Self.clock(ctx.date.timeIntervalSince(recorder.startedAt)))
