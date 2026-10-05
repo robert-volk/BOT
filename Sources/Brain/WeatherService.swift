@@ -64,6 +64,45 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    struct DayForecast: Identifiable {
+        let id = UUID()
+        let date: Date
+        let high: Double
+        let low: Double
+        let rain: Double
+    }
+
+    /// Seven days of highs, lows and chance of precipitation, for the forecast chart.
+    func forecastSeries(lat: Double, lon: Double, metric: Bool) async -> [DayForecast] {
+        var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
+        c.queryItems = [
+            .init(name: "latitude", value: String(lat)),
+            .init(name: "longitude", value: String(lon)),
+            .init(name: "daily", value: "temperature_2m_max,temperature_2m_min,precipitation_probability_max"),
+            .init(name: "temperature_unit", value: metric ? "celsius" : "fahrenheit"),
+            .init(name: "timezone", value: "auto"),
+            .init(name: "forecast_days", value: "7"),
+        ]
+        var req = URLRequest(url: c.url!)
+        req.timeoutInterval = 8
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let daily = root["daily"] as? [String: Any],
+              let times = daily["time"] as? [String],
+              let highs = daily["temperature_2m_max"] as? [Double],
+              let lows = daily["temperature_2m_min"] as? [Double] else { return [] }
+        let rain = daily["precipitation_probability_max"] as? [Double] ?? []
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        var out: [DayForecast] = []
+        for (i, t) in times.enumerated() {
+            guard i < highs.count, i < lows.count, let d = formatter.date(from: t) else { continue }
+            out.append(DayForecast(date: d, high: highs[i], low: lows[i], rain: i < rain.count ? rain[i] : 0))
+        }
+        return out
+    }
+
     private func fetchForecast(lat: Double, lon: Double, label: String, tomorrow: Bool, metric: Bool) async throws -> LookupResult {
         var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         c.queryItems = [

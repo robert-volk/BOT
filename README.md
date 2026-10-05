@@ -66,6 +66,9 @@ Say "switch to metric" (or "use Fahrenheit") or pick **Units** in Customize → 
 - **Privacy**: meeting notes, journal and scanned text are kept out of anything sent to Claude. Smart summaries use Apple's on-device AI when your iPhone has it; otherwise BOT saves the transcript with the opening lines and any sentences that sound like action items.
 - **Dollars**: "convert 100 dollars to euros" uses Canadian dollars by default; change it in Customize.
 
+## Pictures, maps, charts and diagrams
+"What does a snowy owl look like?", "show me pictures of the Eiffel Tower online" or any "find photos of ..." that doesn't match your own photos show pictures from Wikipedia and Wikimedia Commons (credited, free-licensed; a Brave Search key adds broader results). "Show me a map of Banff" opens a map. "Chart the weather forecast" (or "...in Calgary") shows a 7-day high/low and rain chart. "Draw a diagram of the water cycle" has Claude draw an SVG diagram (needs a Claude key). BOT can't create photo-realistic AI images: that needs Apple Intelligence hardware.
+
 ## Synced sources and photos
 Documents screen → **Add a synced folder** (iCloud Drive, or a Google Drive folder via the Google Drive app in the Files picker) or **Add photo albums**. BOT remembers them and, whenever the app opens, indexes new and changed files and drops deleted ones. Cloud-only files are downloaded as needed. Google Docs/Sheets can't be read (iOS shows only shortcuts): use PDF/Word/Excel. Photos: BOT reads visible text and what each picture shows, on-device, 300 photos per check. Say "find photos of the receipt from March" and it shows the matches; photo text is never sent to Claude.
 

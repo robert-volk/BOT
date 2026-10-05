@@ -32,6 +32,7 @@ final class ConversationEngine: ObservableObject {
     @Published var cameraQuestion: String?
     @Published var cameraReadsText = false
     @Published var previewPhotoIDs: [String] = []
+    @Published var visual: Visual?
     private var autoRecording = false
     let recorder = MeetingRecorder()
     private var afterSpeech: (() -> Void)?
@@ -408,9 +409,17 @@ final class ConversationEngine: ObservableObject {
             handleLife(life)
             return true
         }
+        if let intent = VisualIntent.parse(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            handleVisual(intent)
+            return true
+        }
         if let topic = PhotoIntent.parse(text) {
             turns.append(ChatTurn(role: .user, text: text, isPrivate: true))
-            handlePhotoSearch(topic, window: DateWindow.parse(text))
+            let window = DateWindow.parse(text)
+            let lower = " " + text.lowercased() + " "
+            let personal = window != nil || lower.contains(" my ") || lower.contains("screenshot") || lower.contains("camera roll")
+            handlePhotoSearch(topic, window: window, personalOnly: personal)
             return true
         }
         if DocsIntent.isListRequest(text) {
@@ -740,14 +749,27 @@ final class ConversationEngine: ObservableObject {
     // MARK: Photos
 
     /// "Find photos of the receipt from March": matched on-device by the text and contents BOT read from your photos.
-    private func handlePhotoSearch(_ topic: String, window: ClosedRange<Date>?) {
+    private func handlePhotoSearch(_ topic: String, window: ClosedRange<Date>?, personalOnly: Bool) {
+        let braveKey = Keychain.get(Self.braveKeyAccount)
+        // Nothing of yours matches: fall back to pictures from the web (unless the question was clearly about your own photos).
+        func fallback(_ intro: String) {
+            if personalOnly || DocumentStore.terms(topic).isEmpty {
+                speakLocal(intro.isEmpty ? "I couldn't find a matching photo." : intro, isPrivate: true)
+            } else {
+                phase = .thinking
+                Task { [weak self] in await self?.showWebImages(topic, intro: intro, braveKey: braveKey) }
+            }
+        }
         guard documents.hasPhotoChunks else {
-            speakLocal("You haven't added any photo albums yet. Open Documents from the menu, then add photo albums.", isPrivate: true)
+            if personalOnly {
+                speakLocal("You haven't added any photo albums yet. Open Documents from the menu, then add photo albums.", isPrivate: true)
+            } else {
+                fallback("")
+            }
             return
         }
         let chunks: [DocChunk]
-        let words = DocumentStore.terms(topic)
-        if words.isEmpty {
+        if DocumentStore.terms(topic).isEmpty {
             chunks = documents.recentPhotoChunks(in: window, limit: 8)
         } else {
             chunks = documents.search(topic, limit: 12, scope: .photos, dateWindow: window).filter { $0.score >= 0.25 }.map { $0.chunk }
@@ -756,16 +778,97 @@ final class ConversationEngine: ObservableObject {
         var seen = Set<String>()
         for c in chunks { if let id = c.assetID, seen.insert(id).inserted { ids.append(id) } }
         guard let best = chunks.first, !ids.isEmpty else {
-            speakLocal("I couldn't find a matching photo.", isPrivate: true)
+            fallback(personalOnly ? "" : "I couldn't find that in your photos. ")
             return
         }
         previewPhotoIDs = Array(ids.prefix(8))
         let formatter = DateFormatter()
         formatter.dateStyle = .long
-        var reply = "I found \(ids.count) photo\(ids.count == 1 ? "" : "s"). The best match is from "
+        var reply = "I found \(ids.count) photo\(ids.count == 1 ? "" : "s") of yours. The best match is from "
             + (best.date.map { formatter.string(from: $0) } ?? "an unknown date") + "."
         if let r = best.text.range(of: "Text in photo: ") { reply += " Its text says: " + String(best.text[r.upperBound...].prefix(220)) }
         speakLocal(reply, isPrivate: true)
+    }
+
+    // MARK: Pictures, maps, charts and diagrams
+
+    private func handleVisual(_ intent: VisualIntent) {
+        phase = .thinking
+        let metric = prefs.metric
+        let braveKey = Keychain.get(Self.braveKeyAccount)
+        let brain = self.brain
+        Task { [weak self] in
+            guard let self else { return }
+            switch intent {
+            case .images(let query):
+                await self.showWebImages(query, intro: "", braveKey: braveKey)
+
+            case .map(let place):
+                var coordinate: CLLocationCoordinate2D?
+                var title = place
+                let lower = place.lowercased()
+                if place.isEmpty || lower == "here" || lower == "me" || lower == "my location" {
+                    let here = await LocationService.shared.current()
+                    coordinate = here?.coordinate
+                    title = "your location"
+                } else {
+                    coordinate = await LocationService.shared.geocode(place)
+                }
+                guard let c = coordinate else {
+                    self.speakLocal("I couldn't find \(place.isEmpty ? "your location" : place) on the map.")
+                    return
+                }
+                self.visual = .map(title: title.capitalizedFirst, coordinate: c)
+                self.speakLocal("Here's the map of \(title).")
+
+            case .weatherChart(let place):
+                var coordinate: CLLocationCoordinate2D?
+                var label = "your area"
+                if place.isEmpty {
+                    let here = await LocationService.shared.current()
+                    coordinate = here?.coordinate
+                } else {
+                    coordinate = await LocationService.shared.geocode(place)
+                    label = place
+                }
+                guard let c = coordinate else {
+                    self.speakLocal("I need a location for the forecast. Turn on location access, or say a city.")
+                    return
+                }
+                let days = await self.weather.forecastSeries(lat: c.latitude, lon: c.longitude, metric: metric)
+                guard !days.isEmpty else {
+                    self.speakLocal("I couldn't get the forecast right now.")
+                    return
+                }
+                self.visual = .forecast(place: label.capitalizedFirst, days: days, metric: metric)
+                self.speakLocal("Here's the seven day forecast for \(label).")
+
+            case .diagram(let subject):
+                guard !(brain is BasicBrain) else {
+                    self.speakLocal("Drawing needs the AI brain. Add a Claude key in Customize, under Brain.")
+                    return
+                }
+                self.speakLocal("Okay, drawing that now.")
+                let system = "You draw clear diagrams and illustrations as SVG. Output ONLY one complete <svg> element: viewBox=\"0 0 800 600\", self-contained, no scripts, no external images or links, large readable text labels (font-size at least 18), simple shapes, arrows where useful, good color contrast, white background. No explanation, no markdown."
+                let out = (try? await brain.complete(system: system, prompt: "Draw: \(subject)", maxTokens: 3500)) ?? ""
+                guard let svg = SVGSanitizer.extract(out) else {
+                    self.speakLocal("Sorry, I couldn't draw that one. Try describing it a little differently.")
+                    return
+                }
+                self.visual = .diagram(title: subject.capitalizedFirst, svg: svg)
+                self.speakLocal("Here's your diagram.")
+            }
+        }
+    }
+
+    private func showWebImages(_ query: String, intro: String, braveKey: String?) async {
+        let images = await ImageSearchService.search(query, braveKey: braveKey, limit: 8)
+        guard !images.isEmpty else {
+            speakLocal(intro + "I couldn't find pictures of \(query).")
+            return
+        }
+        visual = .images(query: query, images: images)
+        speakLocal(intro + "Here are \(images.count) pictures of \(query), from the web. Swipe to see more.")
     }
 
     // MARK: Documents

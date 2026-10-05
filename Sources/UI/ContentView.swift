@@ -69,6 +69,10 @@ struct ContentView: View {
             PhotoPreviewView(assetIDs: engine.previewPhotoIDs)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
+        .sheet(item: $engine.visual) { v in
+            VisualSheet(visual: v)
+                .preferredColorScheme(prefs.appearance.scheme)
+        }
         .sheet(isPresented: $showDocuments) {
             NavigationStack { DocumentsView() }
                 .environmentObject(documents)
