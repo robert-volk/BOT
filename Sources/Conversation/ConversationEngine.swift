@@ -25,6 +25,7 @@ final class ConversationEngine: ObservableObject {
     let reminders: ReminderCenter
     let calendar: CalendarCenter
     let lists: ListStore
+    let documents: DocumentStore
     private let phoneActions: PhoneActions
     private let emailAssistant: EmailAssistant
     private let historyURL: URL
@@ -50,12 +51,13 @@ final class ConversationEngine: ObservableObject {
     static let claudeKeyAccount = "claude-api-key"
     static let braveKeyAccount = "brave-api-key"
 
-    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter, lists: ListStore, email: EmailStore) {
+    init(settings: AppSettings, facts: FactStore, reminders: ReminderCenter, calendar: CalendarCenter, lists: ListStore, email: EmailStore, documents: DocumentStore) {
         self.settings = settings
         self.facts = facts
         self.reminders = reminders
         self.calendar = calendar
         self.lists = lists
+        self.documents = documents
         let phone = PhoneActions()
         self.phoneActions = phone
         self.emailAssistant = EmailAssistant(service: EmailService(store: email), phone: phone)
@@ -285,6 +287,12 @@ final class ConversationEngine: ObservableObject {
         let maxTokens = prefs.replyLength.maxTokens
         let metric = prefs.metric
         let brain = self.brain
+        let docLookup = lookupDocuments(text)
+        let docsToClaude = prefs.docsToClaude
+        let answerTokens: Int = {
+            if case .context = docLookup { return max(maxTokens, 260) }   // document answers need room to cite
+            return maxTokens
+        }()
 
         replyTask = Task { [weak self] in
             var chunker = SentenceChunker()
@@ -305,7 +313,7 @@ final class ConversationEngine: ObservableObject {
                     if brain is BasicBrain { direct = message }
                     else { system += "\n\nThe weather lookup failed: \(message) Tell them that briefly and kindly." }
                 }
-            } else if let q = self?.searchQuery(for: text, basic: brain is BasicBrain) {
+            } else if case .notADocQuestion = docLookup, let q = self?.searchQuery(for: text, basic: brain is BasicBrain) {
                 let result = await WebSearchService(braveKey: Keychain.get(Self.braveKeyAccount)).search(q)
                 guard let self, self.replyID == id, !Task.isCancelled else { return }
                 switch result {
@@ -318,6 +326,19 @@ final class ConversationEngine: ObservableObject {
                 }
             }
 
+            switch docLookup {
+            case .notADocQuestion:
+                break
+            case .direct(let message):
+                direct = message
+            case .context(let prompt, let extractive):
+                if brain is BasicBrain || (brain is ClaudeBrain && !docsToClaude) {
+                    direct = extractive
+                } else {
+                    system += "\n\n" + prompt
+                }
+            }
+
             do {
                 if let direct {
                     guard let self, self.replyID == id, !Task.isCancelled else { return }
@@ -325,7 +346,7 @@ final class ConversationEngine: ObservableObject {
                     self.liveReply = full
                     for s in chunker.feed(direct + " ") { self.say(s) }
                 } else {
-                for try await delta in brain.respond(system: system, history: history, user: text, maxTokens: maxTokens) {
+                for try await delta in brain.respond(system: system, history: history, user: text, maxTokens: answerTokens) {
                     guard let self, self.replyID == id, !Task.isCancelled else { return }
                     full += delta
                     self.liveReply = full
@@ -365,6 +386,14 @@ final class ConversationEngine: ObservableObject {
         if let life = LifeIntent.parse(text) {
             turns.append(ChatTurn(role: .user, text: text, isPrivate: true))
             handleLife(life)
+            return true
+        }
+        if DocsIntent.isListRequest(text) {
+            turns.append(ChatTurn(role: .user, text: text))
+            let names = documents.docs.filter { $0.status == "ready" }.map { $0.name }
+            speakLocal(names.isEmpty
+                ? "You haven't added any documents yet."
+                : "You have \(names.count) document\(names.count == 1 ? "" : "s"): " + ListStore.joined(Array(names.prefix(8))) + (names.count > 8 ? ", and more." : "."))
             return true
         }
         if let metric = UnitPreference.parse(text) {
@@ -681,6 +710,47 @@ final class ConversationEngine: ObservableObject {
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let out = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
         return out.jpegData(compressionQuality: 0.7) ?? data
+    }
+
+    // MARK: Documents
+
+    private enum DocLookup {
+        case notADocQuestion
+        case direct(String)
+        case context(prompt: String, extractive: String)
+    }
+
+    /// Finds the passages of your own documents that answer this question (or says there are none).
+    private func lookupDocuments(_ text: String) -> DocLookup {
+        let explicit = DocsIntent.isExplicit(text)
+        guard explicit || (prefs.docsAlways && !documents.isEmpty) else { return .notADocQuestion }
+        guard !documents.isEmpty else {
+            return explicit
+                ? .direct("You haven't added any documents yet. Open Documents from the menu at the top to add some.")
+                : .notADocQuestion
+        }
+        let hits = documents.search(DocsIntent.query(from: text), limit: 5).filter { $0.score >= (explicit ? 0.3 : 0.55) }
+        guard !hits.isEmpty else {
+            return explicit ? .direct("I couldn't find that in your documents.") : .notADocQuestion
+        }
+
+        let budget = brain is ClaudeBrain ? 7000 : 3000
+        var excerpts = ""
+        for (i, h) in hits.enumerated() {
+            let place = h.chunk.location.isEmpty ? "" : ", " + h.chunk.location
+            let block = "[\(i + 1)] \(h.chunk.docName)\(place)\n\(h.chunk.text)\n\n"
+            if excerpts.count + block.count > budget, i > 0 { break }
+            excerpts += block
+        }
+        let prompt = """
+        DOCUMENT EXCERPTS from the user's own library. Answer their question using ONLY these excerpts. If the excerpts do not contain the answer, say you couldn't find it in their documents; never guess or use outside knowledge for this question. Mention which document (and page or sheet) you used, briefly and naturally, for example "According to the Travel Policy, page 3, ...". Give names, numbers and dates exactly as written.
+
+        \(excerpts)
+        """
+        let top = hits[0].chunk
+        let place = top.location.isEmpty ? "" : ", " + top.location
+        let extractive = "From \(top.docName)\(place): " + String(top.text.prefix(450))
+        return .context(prompt: prompt, extractive: extractive)
     }
 
     // MARK: Email

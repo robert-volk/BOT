@@ -9,6 +9,7 @@ struct BOTApp: App {
     @StateObject private var calendar: CalendarCenter
     @StateObject private var lists: ListStore
     @StateObject private var emailStore: EmailStore
+    @StateObject private var documents: DocumentStore
 
     init() {
         let s = AppSettings()
@@ -19,13 +20,15 @@ struct BOTApp: App {
         let c = CalendarCenter(reminders: r)
         let l = ListStore()
         let em = EmailStore()
+        let dc = DocumentStore()
         _settings = StateObject(wrappedValue: s)
         _facts = StateObject(wrappedValue: f)
         _reminders = StateObject(wrappedValue: r)
         _calendar = StateObject(wrappedValue: c)
         _lists = StateObject(wrappedValue: l)
         _emailStore = StateObject(wrappedValue: em)
-        _engine = StateObject(wrappedValue: ConversationEngine(settings: s, facts: f, reminders: r, calendar: c, lists: l, email: em))
+        _documents = StateObject(wrappedValue: dc)
+        _engine = StateObject(wrappedValue: ConversationEngine(settings: s, facts: f, reminders: r, calendar: c, lists: l, email: em, documents: dc))
     }
 
     var body: some Scene {
@@ -38,6 +41,7 @@ struct BOTApp: App {
                 .environmentObject(calendar)
                 .environmentObject(lists)
                 .environmentObject(emailStore)
+                .environmentObject(documents)
                 .preferredColorScheme(settings.prefs.appearance.scheme)
         }
     }

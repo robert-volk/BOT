@@ -9,6 +9,7 @@ struct ContentView: View {
     @EnvironmentObject var calendar: CalendarCenter
     @EnvironmentObject var lists: ListStore
     @EnvironmentObject var emailStore: EmailStore
+    @EnvironmentObject var documents: DocumentStore
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var showTranscript = false
     @State private var showReminders = false
     @State private var showLists = false
+    @State private var showDocuments = false
 
     private var prefs: Preferences { settings.prefs }
     private var theme: Theme { Theme(prefs: prefs, scheme: scheme) }
@@ -54,12 +56,17 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: engine.learnedToast)
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders).environmentObject(lists).environmentObject(emailStore)
+            SettingsView().environmentObject(settings).environmentObject(engine).environmentObject(facts).environmentObject(calendar).environmentObject(reminders).environmentObject(lists).environmentObject(emailStore).environmentObject(documents)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showMemory) {
             NavigationStack { MemoryView() }
                 .environmentObject(settings).environmentObject(facts)
+                .preferredColorScheme(prefs.appearance.scheme)
+        }
+        .sheet(isPresented: $showDocuments) {
+            NavigationStack { DocumentsView() }
+                .environmentObject(documents)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showLists) {
@@ -125,6 +132,7 @@ struct ContentView: View {
             Menu {
                 Button { showTranscript = true } label: { Label("Conversation", systemImage: "text.bubble") }
                 Button { showLists = true } label: { Label("Lists & notes", systemImage: "checklist") }
+                Button { showDocuments = true } label: { Label("Documents", systemImage: "doc.text.magnifyingglass") }
                 Button { engine.requestCamera("Describe what you see, and tell me anything useful about it.") } label: {
                     Label("Look with camera", systemImage: "camera.fill")
                 }

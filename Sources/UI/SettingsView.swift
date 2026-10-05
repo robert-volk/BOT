@@ -8,6 +8,7 @@ struct SettingsView: View {
     @EnvironmentObject var calendar: CalendarCenter
     @EnvironmentObject var reminders: ReminderCenter
     @EnvironmentObject var emailStore: EmailStore
+    @EnvironmentObject var documents: DocumentStore
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
 
@@ -39,6 +40,7 @@ struct SettingsView: View {
                 calendarSection
                 briefingSection
                 emailSection
+                documentsSection
                 alertTestSection
                 memorySection
                 resetSection
@@ -390,6 +392,20 @@ struct SettingsView: View {
             }
         } footer: {
             Text("Shows the start and last four characters of the saved key, so you can match it against your key list in the Anthropic Console, and asks Anthropic whether it accepts it.")
+        }
+    }
+
+    private var documentsSection: some View {
+        Section {
+            NavigationLink {
+                DocumentsView()
+            } label: {
+                LabeledContent("Document library", value: documents.readyCount == 0 ? "Empty" : "\(documents.readyCount) files")
+            }
+            Toggle("Let Claude read matching passages", isOn: $settings.prefs.docsToClaude)
+            Toggle("Check my documents for every question", isOn: $settings.prefs.docsAlways)
+        } header: { Text("Documents") } footer: {
+            Text("Ask things like \u{201C}search my documents for the hotel limit\u{201D} or \u{201C}what does the travel policy say about meals?\u{201D}. BOT finds the best passages on your phone and, if the first switch is on, sends only those passages (never the whole library) to Claude to write an answer that cites the document. With it off, BOT reads you the best passage word for word. The second switch makes BOT check your library on every question and use it only when something matches strongly.")
         }
     }
 
