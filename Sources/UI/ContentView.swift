@@ -10,6 +10,7 @@ struct ContentView: View {
     @EnvironmentObject var lists: ListStore
     @EnvironmentObject var emailStore: EmailStore
     @EnvironmentObject var documents: DocumentStore
+    @EnvironmentObject var stocks: StockWatcher
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
 
@@ -18,6 +19,7 @@ struct ContentView: View {
     @State private var showTranscript = false
     @State private var showReminders = false
     @State private var showLists = false
+    @State private var showStocks = false
     @State private var showDocuments = false
 
     private var prefs: Preferences { settings.prefs }
@@ -80,6 +82,10 @@ struct ContentView: View {
                 .environmentObject(documents)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
+        .sheet(isPresented: $showStocks) {
+            StocksView().environmentObject(stocks)
+                .preferredColorScheme(prefs.appearance.scheme)
+        }
         .sheet(isPresented: $showLists) {
             ListsView().environmentObject(lists)
                 .preferredColorScheme(prefs.appearance.scheme)
@@ -108,7 +114,7 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, new in
             if new != .active { engine.end() }
-            if new == .active { if !consumeSiriLaunch() { engine.listenOnOpen() }; resyncCalendar(); documents.rescanAll() }
+            if new == .active { if !consumeSiriLaunch() { engine.listenOnOpen() }; resyncCalendar(); documents.rescanAll(); Task { await stocks.refresh() } }
             applyScreenLock()
         }
         .onReceive(NotificationCenter.default.publisher(for: .botWakeRequested)) { _ in consumeSiriLaunch() }
@@ -154,6 +160,7 @@ struct ContentView: View {
                 Button { showTranscript = true } label: { Label("Conversation", systemImage: "text.bubble") }
                 Button { showLists = true } label: { Label("Lists & notes", systemImage: "checklist") }
                 Button { showDocuments = true } label: { Label("Documents", systemImage: "doc.text.magnifyingglass") }
+                Button { showStocks = true } label: { Label("Stock alerts", systemImage: "chart.line.uptrend.xyaxis") }
                 Button { engine.requestCamera("Describe what you see, and tell me anything useful about it.") } label: {
                     Label("Look with camera", systemImage: "camera.fill")
                 }

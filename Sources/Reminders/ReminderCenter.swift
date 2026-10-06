@@ -49,6 +49,8 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
     private var announced = Set<String>()
     private let keepAlive = SilentKeepAlive()
     var backgroundSpeech = false { didSet { if oldValue != backgroundSpeech { refreshAlerts() } } }
+    /// Keeps BOT running in the background (silent audio) even with no alert due, for things that poll, like stock alerts.
+    var keepAliveWanted = false { didSet { if oldValue != keepAliveWanted { refreshAlerts() } } }
 
     override init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -87,7 +89,7 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
                 Task { @MainActor in self?.timerFired(key: key, line: alert.line) }
             }
         }
-        if alerts.values.contains(where: { $0.fire.timeIntervalSinceNow < 24 * 3600 }) {
+        if keepAliveWanted || alerts.values.contains(where: { $0.fire.timeIntervalSinceNow < 24 * 3600 }) {
             keepAlive.start()
         } else {
             keepAlive.stop()
@@ -173,6 +175,12 @@ final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenter
                                                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
             try? await UNUserNotificationCenter.current().add(request)
         }
+    }
+
+    /// Shows a banner and speaks `line` right now (used by stock alerts).
+    func announceNow(key: String, line: String, title: String, body: String) {
+        postNow(title: title, body: body)
+        deliver(key: key, line: line)
     }
 
     private func triggerBriefing() {

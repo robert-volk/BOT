@@ -42,6 +42,7 @@ Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or
 ## More things BOT does
 - **Daily briefing**: say "good morning" or "brief me", or set a daily alarm in Customize. BOT reads the weather, your meetings, today's reminders and the top 3 NPR headlines.
 - **Leave-now alerts**: for meetings with an address, BOT estimates the drive (Apple Maps) and alerts you when it's time to go.
+- **Stock alerts**: ⋯ menu > Stock alerts. Search any company or ticker (Apple, TSLA, SHOP.TO), pick a trigger (up or down by N% from the previous day's close), and BOT shows a banner and speaks it once a day per stock. Quotes are free from Yahoo Finance (may be 15 minutes late); checks every 2 minutes while BOT runs, and in the background if Speak alerts even in silent mode is on.
 - **Repeating reminders and snooze**: "remind me every weekday at 8 to take my pills", "snooze for 10 minutes".
 - **Lists and notes**: "add milk and eggs to my grocery list", "what's on my to-do list", "take a note: call the plumber", "what did I note about the plumber".
 - **Call, text, directions, nearby**: "call Mom", "text Sam I'm running late" (opens Messages pre-filled; you tap Send), "directions to the airport", "find a coffee shop near me". iOS asks you to confirm calls.

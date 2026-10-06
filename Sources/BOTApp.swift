@@ -10,6 +10,7 @@ struct BOTApp: App {
     @StateObject private var lists: ListStore
     @StateObject private var emailStore: EmailStore
     @StateObject private var documents: DocumentStore
+    @StateObject private var stocks: StockWatcher
 
     init() {
         let s = AppSettings()
@@ -21,6 +22,7 @@ struct BOTApp: App {
         let l = ListStore()
         let em = EmailStore()
         let dc = DocumentStore()
+        let st = StockWatcher(reminders: r)
         _settings = StateObject(wrappedValue: s)
         _facts = StateObject(wrappedValue: f)
         _reminders = StateObject(wrappedValue: r)
@@ -28,6 +30,7 @@ struct BOTApp: App {
         _lists = StateObject(wrappedValue: l)
         _emailStore = StateObject(wrappedValue: em)
         _documents = StateObject(wrappedValue: dc)
+        _stocks = StateObject(wrappedValue: st)
         _engine = StateObject(wrappedValue: ConversationEngine(settings: s, facts: f, reminders: r, calendar: c, lists: l, email: em, documents: dc))
     }
 
@@ -42,6 +45,7 @@ struct BOTApp: App {
                 .environmentObject(lists)
                 .environmentObject(emailStore)
                 .environmentObject(documents)
+                .environmentObject(stocks)
                 .preferredColorScheme(settings.prefs.appearance.scheme)
         }
     }
