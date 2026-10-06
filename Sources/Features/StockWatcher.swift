@@ -16,6 +16,11 @@ struct StockQuote: Equatable {
     var price: Double
     var previousClose: Double
     var currency: String
+    var dayHigh: Double? = nil
+    var dayLow: Double? = nil
+    var volume: Double? = nil
+    var yearHigh: Double? = nil
+    var yearLow: Double? = nil
 
     var changePercent: Double { previousClose > 0 ? (price - previousClose) / previousClose * 100 : 0 }
 }
@@ -66,7 +71,20 @@ enum StockService {
         guard previous > 0 else { return nil }
         let name = (meta["longName"] as? String) ?? (meta["shortName"] as? String) ?? symbol
         return StockQuote(symbol: symbol, name: name, price: price, previousClose: previous,
-                          currency: (meta["currency"] as? String) ?? "USD")
+                          currency: (meta["currency"] as? String) ?? "USD",
+                          dayHigh: meta["regularMarketDayHigh"] as? Double, dayLow: meta["regularMarketDayLow"] as? Double,
+                          volume: meta["regularMarketVolume"] as? Double,
+                          yearHigh: meta["fiftyTwoWeekHigh"] as? Double, yearLow: meta["fiftyTwoWeekLow"] as? Double)
+    }
+
+    /// The most recent news headline for a stock, if Yahoo has one.
+    static func headline(_ symbol: String) async -> String? {
+        guard var comps = URLComponents(string: "https://query1.finance.yahoo.com/v1/finance/search") else { return nil }
+        comps.queryItems = [URLQueryItem(name: "q", value: symbol), URLQueryItem(name: "quotesCount", value: "0"),
+                            URLQueryItem(name: "newsCount", value: "1")]
+        guard let url = comps.url, let json = await get(url) as? [String: Any],
+              let title = (json["news"] as? [[String: Any]])?.first?["title"] as? String else { return nil }
+        return title
     }
 }
 
@@ -133,19 +151,36 @@ final class StockWatcher: ObservableObject {
             guard hit else { continue }
             watches[idx].lastAlertDay = today
             save()
-            announce(q, change: change)
+            let headline = await StockService.headline(w.symbol)
+            announce(q, change: change, headline: headline)
         }
     }
 
-    private func announce(_ q: StockQuote, change: Double) {
+    private func announce(_ q: StockQuote, change: Double, headline: String?) {
         let direction = change >= 0 ? "up" : "down"
         let pct = String(format: "%.1f", abs(change))
-        let price = String(format: "%.2f", q.price)
         let unit = ["USD": "dollars", "CAD": "Canadian dollars"][q.currency] ?? q.currency
-        let line = "Stock alert. \(q.name) is \(direction) \(pct) percent from yesterday's close, trading at \(price) \(unit)."
-        reminders.announceNow(key: "stock-\(q.symbol)-\(Self.dayKey())", line: line,
+        func money(_ v: Double) -> String { String(format: "%.2f", v) }
+
+        var parts = ["Stock alert. \(q.name) is \(direction) \(pct) percent from yesterday's close, trading at \(money(q.price)) \(unit)."]
+        parts.append("That is \(money(abs(q.price - q.previousClose))) \(change >= 0 ? "above" : "below") the previous close of \(money(q.previousClose)).")
+        if let hi = q.dayHigh, let lo = q.dayLow { parts.append("Today's range is \(money(lo)) to \(money(hi)).") }
+        if let v = q.volume, v > 0 { parts.append("Volume is \(Self.spokenVolume(v)) shares.") }
+        if let hi = q.yearHigh, let lo = q.yearLow, hi > lo {
+            let spot = (q.price - lo) / (hi - lo) * 100
+            parts.append("Over the past year it has ranged from \(money(lo)) to \(money(hi)), so it is at \(Int(spot.rounded())) percent of that range.")
+        }
+        if let headline { parts.append("Latest headline: \(headline).") }
+
+        reminders.announceNow(key: "stock-\(q.symbol)-\(Self.dayKey())", line: parts.joined(separator: " "),
                               title: "\(q.symbol) \(direction) \(pct)%",
-                              body: "\(q.name) is trading at \(price) \(q.currency).")
+                              body: "\(q.name) is trading at \(money(q.price)) \(q.currency). " + (headline ?? ""))
+    }
+
+    private static func spokenVolume(_ v: Double) -> String {
+        if v >= 1_000_000 { return String(format: "%.1f million", v / 1_000_000) }
+        if v >= 1_000 { return String(format: "%.0f thousand", v / 1_000) }
+        return String(Int(v))
     }
 
     private static func dayKey() -> String {
