@@ -37,7 +37,7 @@ or **Samantha (Enhanced)**. BOT picks the best one automatically, or choose in B
 - **Web search**: with a Claude key, Claude searches the live web itself (Anthropic's web search tool; small per-search fee). Otherwise BOT searches DuckDuckGo (free, no key), falls back to Wikipedia, and reads the top pages. An optional Brave Search key (Settings → Search) makes the no-Claude path more reliable. Toggle in Settings → Search.
 
 ## Reminders and timers
-Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or "set a timer for 10 minutes". BOT shows a banner notification and speaks the reminder: live if the app is open, otherwise the notification plays a recording of BOT's own voice (rendered on-device when the reminder is set). The bell icon lists and deletes them; you can also say "what are my reminders" or "clear my reminders". Works with every brain, even Basic mode.
+Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or "set a timer for 10 minutes". BOT shows a banner notification and speaks the reminder: live if the app is open, otherwise the notification plays a recording of BOT's own voice (rendered on-device when the reminder is set). The bell icon lists and deletes them; you can also say "what are my reminders" or "clear my reminders". Tap the + in that list to add your own announcement with a form: the message, the time, and once / every day / weekdays / every week / every month. Works with every brain, even Basic mode.
 
 ## More things BOT does
 - **Daily briefing**: say "good morning" or "brief me", or set a daily alarm in Customize. BOT reads the weather, your meetings, today's reminders and the top 3 NPR headlines.

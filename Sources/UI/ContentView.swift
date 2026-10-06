@@ -91,7 +91,7 @@ struct ContentView: View {
                               onCancel: { engine.cameraQuestion = nil; engine.cameraReadsText = false })
         }
         .sheet(isPresented: $showReminders) {
-            RemindersView().environmentObject(reminders)
+            RemindersView().environmentObject(reminders).environmentObject(settings)
                 .preferredColorScheme(prefs.appearance.scheme)
         }
         .sheet(isPresented: $showTranscript) {
