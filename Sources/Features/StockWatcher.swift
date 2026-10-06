@@ -120,6 +120,16 @@ final class StockWatcher: ObservableObject {
         Task { await refresh() }
     }
 
+    /// Changes one stock's trigger. It can alert again today if the new trigger is already met.
+    func update(_ w: StockWatch, percent: Double, rising: Bool) {
+        guard let idx = watches.firstIndex(where: { $0.id == w.id }) else { return }
+        watches[idx].percent = percent
+        watches[idx].rising = rising
+        watches[idx].lastAlertDay = nil
+        save()
+        Task { await refresh() }
+    }
+
     func remove(_ w: StockWatch) {
         watches.removeAll { $0.id == w.id }
         save()
