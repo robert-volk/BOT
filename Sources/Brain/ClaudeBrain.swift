@@ -56,6 +56,7 @@ struct ClaudeBrain: Brain {
                 do {
                     var useSearch = nativeSearch
                     while true {
+                        var inTokens = 0, outTokens = 0, searches = 0
                         let req = try request(system: system, messages: messages(history: history, user: user),
                                               maxTokens: maxTokens, stream: true, searchTool: useSearch)
                         let (bytes, response) = try await URLSession.shared.bytes(for: req)
@@ -70,12 +71,26 @@ struct ClaudeBrain: Brain {
                             guard line.hasPrefix("data:") else { continue }
                             let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
                             guard let data = json.data(using: .utf8),
-                                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                  obj["type"] as? String == "content_block_delta",
-                                  let delta = obj["delta"] as? [String: Any],
-                                  let text = delta["text"] as? String else { continue }
-                            continuation.yield(text)
+                                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                            switch obj["type"] as? String {
+                            case "message_start":
+                                let usage = (obj["message"] as? [String: Any])?["usage"] as? [String: Any]
+                                inTokens = max(inTokens, Self.tokens(usage, "input_tokens"))
+                                outTokens = max(outTokens, Self.tokens(usage, "output_tokens"))
+                            case "message_delta":
+                                let usage = obj["usage"] as? [String: Any]
+                                inTokens = max(inTokens, Self.tokens(usage, "input_tokens"))
+                                outTokens = max(outTokens, Self.tokens(usage, "output_tokens"))
+                                searches = max(searches, Self.searchCount(usage))
+                            case "content_block_delta":
+                                if let delta = obj["delta"] as? [String: Any], let text = delta["text"] as? String {
+                                    continuation.yield(text)
+                                }
+                            default:
+                                break
+                            }
                         }
+                        ClaudeUsage.record(inputTokens: inTokens, outputTokens: outTokens, searches: searches)
                         break
                     }
                     continuation.finish()
@@ -109,6 +124,7 @@ struct ClaudeBrain: Brain {
         }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let content = obj["content"] as? [[String: Any]] else { return "" }
+        Self.recordUsage(obj)
         return content.compactMap { $0["text"] as? String }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -121,13 +137,32 @@ struct ClaudeBrain: Brain {
         }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let content = obj["content"] as? [[String: Any]] else { return "" }
+        Self.recordUsage(obj)
         return content.compactMap { $0["text"] as? String }.joined()
+    }
+
+    private static func tokens(_ usage: [String: Any]?, _ key: String) -> Int {
+        (usage?[key] as? Int) ?? 0
+    }
+
+    private static func searchCount(_ usage: [String: Any]?) -> Int {
+        ((usage?["server_tool_use"] as? [String: Any])?["web_search_requests"] as? Int) ?? 0
+    }
+
+    /// Adds a finished (non-streamed) response to the running Claude spend estimate.
+    private static func recordUsage(_ response: [String: Any]) {
+        let usage = response["usage"] as? [String: Any]
+        ClaudeUsage.record(inputTokens: tokens(usage, "input_tokens"), outputTokens: tokens(usage, "output_tokens"),
+                           searches: searchCount(usage))
     }
 
     private static func errorMessage(from body: String) -> String {
         if let data = body.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let err = obj["error"] as? [String: Any], let msg = err["message"] as? String { return msg }
+           let err = obj["error"] as? [String: Any], let msg = err["message"] as? String {
+            ClaudeUsage.reportIfOutOfCredit(msg)
+            return msg
+        }
         return String(body.prefix(120))
     }
 }

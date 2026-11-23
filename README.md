@@ -54,6 +54,9 @@ Say "remind me to call Mom at 5", "remind me tomorrow at 9 to take my pills", or
 ## Email (iCloud, Yahoo, Gmail, work IMAP)
 Customize → **Email accounts** → add an account with an app-specific password. Then: "do I have any new email?", "read my unread emails", "read emails from Dana", "reply that Thursday works", "email Sam that I'll be late". BOT reads each draft back and only sends after you say "send it". It connects straight to your mail provider (IMAP/SMTP) and uses `EXAMINE`/`BODY.PEEK`, so it never marks mail as read. **Privacy:** email text is never sent to Claude or any search service. Summaries and drafting use Apple's on-device AI when available, otherwise BOT reads the subject and first line; email turns are excluded from the history sent to Claude. Outlook/Microsoft 365 (and managed work accounts) can't be read. For those, say "email Sam in Mail that the report is ready" (or "from my work account"): BOT opens the Mail app with the message pre-filled (preferring the contact's work address), and you choose the sender and tap Send. With no accounts added, "email Sam ..." does this too.
 
+## Claude balance warning
+Customize > Claude balance: type your balance from console.anthropic.com (Billing) and choose a warning level (default $2). Anthropic doesn't let apps read the real balance, so BOT estimates it by subtracting the cost of each Claude request (Haiku 4.5 prices, including web searches) and posts a notification when the estimate drops below your level. If Claude reports that the credit is gone, BOT warns immediately. Re-enter the balance now and then and after adding credit.
+
 ## Units
 Say "switch to metric" (or "use Fahrenheit") or pick **Units** in Customize → Conversation. Metric changes weather (°C, km/h), nearby-place distances (km) and tells the AI to answer in metric. Explicit conversions ("convert 5 miles to kilometers") always work either way.
 

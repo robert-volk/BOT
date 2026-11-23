@@ -35,6 +35,7 @@ struct SettingsView: View {
                 conversationSection
                 brainSection
                 keyTestSection
+                ClaudeBalanceSection()
                 searchSection
                 siriSection
                 calendarSection
