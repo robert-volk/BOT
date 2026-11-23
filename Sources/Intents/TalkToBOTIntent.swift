@@ -45,10 +45,19 @@ struct BOTShortcuts: AppShortcutsProvider {
                 "Hey \(.applicationName)",
                 "Wake up \(.applicationName)",
                 "Open \(.applicationName)",
-                "Ask \(.applicationName)",
             ],
             shortTitle: "Talk to BOT",
             systemImageName: "mic.fill"
+        )
+        AppShortcut(
+            intent: AskBOTIntent(),
+            phrases: [
+                "Ask \(.applicationName)",
+                "Ask \(.applicationName) a question",
+                "Quick question for \(.applicationName)",
+            ],
+            shortTitle: "Ask BOT",
+            systemImageName: "questionmark.bubble.fill"
         )
     }
 }

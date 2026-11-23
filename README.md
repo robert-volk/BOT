@@ -80,7 +80,7 @@ Menu (...) → **Documents** → add PDFs, Word (.docx), Excel (.xlsx), text, Ma
 Turn on **Customize → Calendar → Meeting alerts** (iOS asks for calendar access). BOT then schedules a banner plus a spoken heads-up ("Heads up. Team sync starts in 10 minutes.") for each meeting in the next 3 days, refreshed whenever you open the app or your calendar changes. Ask "What's on my calendar today?", "…tomorrow?", "…this week?" or "When's my next meeting?" by voice. Read-only: BOT never edits your calendar. The on-device AI sees your next two days; Claude only if you enable "Let Claude see my schedule".
 
 ## Waking BOT by voice
-Say **"Hey Siri, talk to BOT"** (also "wake up BOT", "ask BOT"). BOT opens, says "Yes?", and listens. It uses an App Intent, so there's no always-on microphone and no battery cost. It also appears in the Shortcuts app, where it can be bound to the Action Button or Back Tap. Say "goodbye" to end a conversation.
+Say **"Hey Siri, talk to BOT"** (also "wake up BOT", "ask BOT"). BOT opens, says "Yes?", and listens. It uses an App Intent, so there's no always-on microphone and no battery cost. **Ask BOT** ("Hey Siri, ask BOT") works with the phone locked: Siri asks the question, BOT's brain answers in Siri's voice, and "remind me to ..." sets a reminder. It never touches your email, calendar, notes, documents, photos or memory (it tells you to unlock for those). It also appears in the Shortcuts app, where it can be bound to the Action Button or Back Tap. Say "goodbye" to end a conversation.
 
 ## Design options (slider icon, top left)
 Live preview with idle / listening / thinking / speaking states, and:

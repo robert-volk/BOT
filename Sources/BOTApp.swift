@@ -15,7 +15,7 @@ struct BOTApp: App {
     init() {
         let s = AppSettings()
         let f = FactStore()
-        let r = ReminderCenter()
+        let r = ReminderCenter.shared
         r.backgroundSpeech = s.prefs.speakInBackground
         r.scheduleBriefing(enabled: s.prefs.briefingEnabled, minutes: s.prefs.briefingMinutes)
         let c = CalendarCenter(reminders: r)

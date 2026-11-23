@@ -280,8 +280,9 @@ struct SettingsView: View {
     private var siriSection: some View {
         Section {
             Label("Say “Hey Siri, talk to BOT”", systemImage: "mic.fill")
+            Label("Say “Hey Siri, ask BOT”", systemImage: "questionmark.bubble.fill")
         } header: { Text("Wake up") } footer: {
-            Text("BOT opens and starts listening. Other phrases that work: “Hey Siri, wake up BOT” or “Hey Siri, ask BOT”. If Siri doesn't recognize it, open BOT once and give Siri a minute to learn it. You can also run it from the Shortcuts app (search “Talk to BOT”) and bind it to the Action Button (iOS Settings, Action Button, Shortcut) or Back Tap (Accessibility, Touch, Back Tap). Say “goodbye” to end a conversation.")
+            Text("Talk to BOT opens the app and starts listening (the phone needs to be unlocked, a Face ID glance is enough). Ask BOT works with the phone locked: Siri asks what you want to know, then answers in Siri’s voice, or sets a reminder (“remind me to call Mom at 5”). It only answers general questions: it never uses your email, calendar, notes, documents, photos or memory, and says to unlock for those. For it to work locked, turn on iPhone Settings > Siri > Allow Siri When Locked. If Siri doesn't recognize it, open BOT once and give Siri a minute to learn it. You can also run it from the Shortcuts app (search “Talk to BOT”) and bind it to the Action Button (iOS Settings, Action Button, Shortcut) or Back Tap (Accessibility, Touch, Back Tap). Say “goodbye” to end a conversation.")
         }
     }
 

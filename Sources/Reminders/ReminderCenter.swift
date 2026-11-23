@@ -27,6 +27,9 @@ enum ScheduleOutcome {
 ///    ringer volume and the silent switch).
 @MainActor
 final class ReminderCenter: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
+    /// One shared instance, so the app and the Siri "Ask BOT" command schedule into the same list.
+    static let shared = ReminderCenter()
+
     @Published private(set) var items: [Reminder] = []
     /// Called with the spoken line when a reminder fires while the app is in the foreground.
     var onForegroundFire: ((String) -> Void)?
