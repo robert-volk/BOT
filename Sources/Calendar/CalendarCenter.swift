@@ -305,8 +305,7 @@ final class CalendarCenter: ObservableObject {
             guard let e = events(from: now, to: now.addingTimeInterval(7 * 86400)).first(where: { $0.startDate > now }) else {
                 return "You don't have any meetings coming up in the next week."
             }
-            let loc = place(e)
-            return "Your next event is \(title(e)) \(ReminderParser.whenPhrase(e.startDate))" + (loc.isEmpty ? "." : ", at \(loc).")
+            return "Next: \(title(e)), \(Self.dayAndTime(e.startDate))."
         }
 
         var dayStart = cal.startOfDay(for: now)
@@ -337,15 +336,33 @@ final class CalendarCenter: ObservableObject {
 
         var reply = ""
         if !timed.isEmpty {
-            let items = timed.prefix(5).map { "\(title($0)) \(ReminderParser.whenPhrase($0.startDate))" }
-            let count = timed.count == 1 ? "one event" : "\(timed.count) events"
-            reply += "You have \(count) \(label == "today" ? "left today" : label): " + Self.joined(items) + "."
-            if timed.count > 5 { reply += " Plus \(timed.count - 5) more." }
+            let items = timed.prefix(6).map { e in
+                (days > 1 ? Self.dayAndTime(e.startDate) : Self.shortTime(e.startDate)) + " " + title(e)
+            }
+            reply += label.prefix(1).uppercased() + label.dropFirst() + ": " + items.joined(separator: ", ") + "."
+            if timed.count > 6 { reply += " Plus \(timed.count - 6) more." }
         }
         if !allDay.isEmpty {
-            reply += (reply.isEmpty ? "" : " ") + "All day: " + Self.joined(allDay.prefix(3).map { title($0) }) + "."
+            reply += (reply.isEmpty ? "" : " ") + "All day: " + allDay.prefix(3).map { title($0) }.joined(separator: ", ") + "."
         }
         return reply
+    }
+
+    /// "2 PM" or "2:30 PM".
+    private static func shortTime(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.component(.minute, from: d) == 0 ? "h a" : "h:mm a"
+        return f.string(from: d)
+    }
+
+    /// "2 PM" today, "tomorrow 2 PM", otherwise "Friday 2 PM".
+    private static func dayAndTime(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return shortTime(d) }
+        if cal.isDateInTomorrow(d) { return "tomorrow " + shortTime(d) }
+        let f = DateFormatter()
+        f.dateFormat = "EEEE"
+        return f.string(from: d) + " " + shortTime(d)
     }
 
     /// A few lines for the AI's prompt so it can answer things like "am I free at 3?".
