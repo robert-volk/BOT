@@ -40,6 +40,8 @@ final class ConversationEngine: ObservableObject {
     let listener = Listener()
     let speaker = Speaker()
     private let weather = WeatherService()
+    /// The Home Security dashboard on the mini PC (alarms, locks, lights, garages, propane...).
+    let home = HomeSecurity()
 
     private var brain: Brain = BasicBrain(note: nil)
     private var replyTask: Task<Void, Never>?
@@ -291,6 +293,15 @@ final class ConversationEngine: ObservableObject {
             handleCalendar(text)
             return
         }
+        if home.mightBeHome(text) {
+            handleHome(text)
+            return
+        }
+        continueResponding(text)
+    }
+
+    /// Everything after the home check: local features, then the brain.
+    private func continueResponding(_ text: String) {
         if handleFeatures(text) { return }
 
         let history = (brain is ClaudeBrain) ? turns.filter { $0.isPrivate != true } : turns
@@ -496,6 +507,37 @@ final class ConversationEngine: ObservableObject {
             return true
         }
         return false
+    }
+
+    // MARK: Home Security
+
+    /// Ask the dashboard. If it says the request isn't about the homes, carry on as usual.
+    private func handleHome(_ text: String) {
+        turns.append(ChatTurn(role: .user, text: text, isPrivate: true))
+        phase = .thinking
+        liveReply = ""
+        let id = UUID()
+        replyID = id
+        let home = self.home
+        replyTask = Task { [weak self] in
+            do {
+                let reply = try await home.ask(text)
+                guard let self, self.replyID == id, !Task.isCancelled else { return }
+                if reply.handled {
+                    if let tab = reply.open, let url = home.pageURL(tab) {
+                        self.afterSpeech = { UIApplication.shared.open(url) }
+                    }
+                    self.speakLocal(reply.say.isEmpty ? "Done." : reply.say, isPrivate: true)
+                } else {
+                    if self.turns.last?.text == text { self.turns.removeLast() }
+                    self.continueResponding(text)
+                }
+            } catch {
+                guard let self, self.replyID == id, !Task.isCancelled else { return }
+                home.pending = nil
+                self.speakLocal(error.localizedDescription, isPrivate: true)
+            }
+        }
     }
 
     // MARK: Daily briefing

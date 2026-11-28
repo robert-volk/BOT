@@ -37,6 +37,7 @@ struct SettingsView: View {
                 keyTestSection
                 ClaudeBalanceSection()
                 searchSection
+                HomeSecuritySection()
                 siriSection
                 calendarSection
                 briefingSection
